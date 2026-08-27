@@ -320,7 +320,11 @@ export interface ApprovalDecision {
   approved: boolean;
   scope?: "once" | "session" | "always";
 }
-export type AssistantWork = AssistantMessage & { work?: WorkBlock; deliveredFiles?: DeliveredFile[] };
+export type AssistantWork = AssistantMessage & {
+  work?: WorkBlock;
+  deliveredFiles?: DeliveredFile[];
+  retryableSend?: boolean;
+};
 
 export interface RunPoll {
   status: "pending" | "running" | "done" | "failed";
@@ -388,7 +392,9 @@ function baseAssistant(model: Model<Api>): AssistantMessage {
   };
 }
 
-async function latestUserTurn(agent: Agent): Promise<{ text: string; attachments: CoreAttachment[] }> {
+async function latestUserTurn(
+  agent: Agent,
+): Promise<{ text: string; attachments: CoreAttachment[]; clientTurnId: string }> {
   const messages = agent.state.messages as Array<AgentMessage & { attachments?: PiAttachment[] }>;
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
@@ -400,12 +406,14 @@ async function latestUserTurn(agent: Agent): Promise<{ text: string; attachments
             .filter((c) => c.type === "text")
             .map((c) => c.text ?? "")
             .join("\n");
+    const identified = m as AgentMessage & { attachments?: PiAttachment[]; clientTurnId?: string };
+    identified.clientTurnId ??= crypto.randomUUID();
     const attachments = await Promise.all(
       (m.attachments ?? []).filter((a) => typeof a.content === "string" && a.content.length > 0).map(toCoreAttachment),
     );
-    return { text, attachments };
+    return { text, attachments, clientTurnId: identified.clientTurnId };
   }
-  return { text: "", attachments: [] };
+  return { text: "", attachments: [], clientTurnId: crypto.randomUUID() };
 }
 
 function attachmentBytes(a: PiAttachment): Uint8Array {
@@ -723,14 +731,15 @@ async function drive(
     stream.push({ type: "start", partial });
     stream.push({ type: "text_start", contentIndex: 0, partial });
 
-    const { text, attachments } = opener
-      ? { text: "", attachments: [] as CoreAttachment[] }
+    const { text, attachments, clientTurnId } = opener
+      ? { text: "", attachments: [] as CoreAttachment[], clientTurnId: undefined }
       : await latestUserTurn(agent);
 
     const submit = await api<{ status?: string; runId?: string; reply?: string }>("/api/turn", {
       method: "POST",
       body: JSON.stringify({
         ...turnRequestBody(threadRef, text, model, agent, getTurnOptions, attachments),
+        ...(clientTurnId ? { clientTurnId } : {}),
         ...(approval ? { approval } : {}),
         ...(opener ? { proactiveOpener: true } : {}),
       }),
@@ -749,6 +758,10 @@ async function drive(
     work.status = "failed";
     work.finishedAt = Date.now();
     notify();
+    if (e instanceof TypeError) {
+      fail(stream, partial, "Message wasn’t sent. Check your connection and try again.", true);
+      return;
+    }
     fail(stream, partial, e instanceof Error ? e.message : String(e));
   }
 }
@@ -1095,7 +1108,12 @@ function streamRunViaSse(
   });
 }
 
-function fail(stream: AssistantMessageEventStream, partial: AssistantMessage, errorMessage: string): void {
+function fail(
+  stream: AssistantMessageEventStream,
+  partial: AssistantMessage,
+  errorMessage: string,
+  retryableSend = false,
+): void {
   const block = partial.content[0];
   const soFar = block?.type === "text" ? block.text : "";
   const error: AssistantMessage = {
@@ -1103,6 +1121,7 @@ function fail(stream: AssistantMessageEventStream, partial: AssistantMessage, er
     content: [{ type: "text", text: soFar }],
     stopReason: "error",
     errorMessage,
+    ...(retryableSend ? { retryableSend: true } : {}),
   };
   stream.push({ type: "error", reason: "error", error });
   stream.end(error);

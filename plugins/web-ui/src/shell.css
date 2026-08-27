@@ -2835,6 +2835,18 @@ a.chat-row-open {
 .composer-error.inline {
   margin: 4px 0 0;
 }
+.send-failure {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 6px;
+  color: var(--destructive, #b42318);
+  font-size: 12px;
+}
+.send-failure .btn {
+  color: var(--foreground);
+}
 .stopped-note {
   display: inline-flex;
   align-items: center;

@@ -1200,6 +1200,20 @@ export function createChatSurface(
     `;
   }
 
+  async function retryFailedSend(message: AgentMessage, index: number): Promise<void> {
+    const agent = chatState.agent;
+    if (!agent || agent.state.isStreaming || agent.state.messages[index] !== message) return;
+    if (!(message as AssistantWork).retryableSend) return;
+    agent.state.messages = agent.state.messages.filter((_, current) => current !== index);
+    ctx.composer.state.error = "";
+    drawActiveChat(agent);
+    try {
+      await agent.continue();
+    } catch (err) {
+      if (agent === chatState.agent) ctx.composer.state.error = errMessage(err, "Could not retry the message.");
+    }
+  }
+
   function visibleMessages(agent: Agent): AgentMessage[] {
     const out = [...agent.state.messages];
     if (agent.state.streamingMessage) out.push(agent.state.streamingMessage);
@@ -1279,12 +1293,22 @@ export function createChatSurface(
         Boolean(deliveredFiles?.length) ||
         msg.content.some((chunk) => chunk.type === "thinking" && chunk.thinking.trim());
       if (!hasVisibleContent && msg.stopReason !== "error" && msg.stopReason !== "aborted") return nothing;
+      let errorTpl: TemplateResult | typeof nothing = nothing;
+      if (msg.stopReason === "error" && msg.errorMessage) {
+        errorTpl = (msg as AssistantWork).retryableSend
+          ? html`<div class="send-failure">
+              <span>${msg.errorMessage}</span>
+              <button class="btn compact" type="button" @click=${() => void retryFailedSend(message, index)}>
+                ${icon(RefreshCw, 12)} Retry
+              </button>
+            </div>`
+          : html`<div class="composer-error inline">${msg.errorMessage}</div>`;
+      }
       return html`
         <article class="message-row assistant-row ${isStreaming ? "streaming" : ""}" data-index=${index}>
           <div class="assistant-body">
             ${showWork ? workBlock(work, isStreaming) : nothing} ${assistantContent(msg, isStreaming, showWork)}
-            ${assistantFileList(deliveredFiles)}
-            ${msg.stopReason === "error" && msg.errorMessage ? html`<div class="composer-error inline">${msg.errorMessage}</div>` : nothing}
+            ${assistantFileList(deliveredFiles)} ${errorTpl}
             ${msg.stopReason === "aborted" ? html`<div class="stopped-note">${icon(Ban, 13)}<span>Stopped</span></div>` : nothing}
             ${isStreaming ? nothing : messageMeta(msg, index)}
           </div>

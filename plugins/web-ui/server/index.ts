@@ -1715,10 +1715,16 @@ const apiRoutes: readonly WebRoute[] = [
       const attachments: CoreAttachment[] = [];
       let approval: { requestId: string; approved: boolean; scope?: string } | undefined;
       let proactiveOpener = false;
+      let clientTurnId: string | undefined;
       try {
         const p = JSON.parse(await readBody(req));
         text = String(p.text ?? "");
         if (p.proactiveOpener === true) proactiveOpener = true;
+        if (
+          typeof p.clientTurnId === "string" &&
+          /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(p.clientTurnId)
+        )
+          clientTurnId = p.clientTurnId;
         if (p.approval && typeof p.approval.requestId === "string" && typeof p.approval.approved === "boolean") {
           approval = {
             requestId: p.approval.requestId,
@@ -1786,6 +1792,7 @@ const apiRoutes: readonly WebRoute[] = [
         ...(attachments.length ? { attachments } : {}),
         ...(approval ? { approval } : {}),
         ...(proactiveOpener ? { proactiveOpener: true } : {}),
+        ...(clientTurnId ? { idempotencyKey: `web:${user}:${clientTurnId}` } : {}),
       };
       return postTurnAndMint(res, turn, user, threadRef);
     },
