@@ -27,6 +27,8 @@ const env = {
   GITHUB_OAUTH_CLIENT_SECRET: "ghsecret",
   X_OAUTH_CLIENT_ID: "xid",
   X_OAUTH_CLIENT_SECRET: "xsecret",
+  MICROSOFT_OAUTH_CLIENT_ID: "msid",
+  MICROSOFT_OAUTH_CLIENT_SECRET: "mssecret",
 } as NodeJS.ProcessEnv;
 
 const resolve = createSecretClientResolver(createEnvSecretSource(env));
@@ -165,6 +167,52 @@ test("google company-slot exchange verifies the id_token hosted domain server-si
 
   const personal = await exchangeCode("google", "c", "https://app/cb", {
     client: await r("google", { accountType: "personal" }),
+    accountType: "personal",
+    fetchImpl: respondWith({ access_token: "at" }),
+  });
+  assert.equal(personal.token.accessToken, "at");
+});
+
+test("microsoft company-slot exchange verifies the id_token tenant server-side", async () => {
+  const r = createSecretClientResolver(createEnvSecretSource({ ...env, MICROSOFT_TENANT_ID: "tenant-123" }));
+  const client = await r("microsoft", { accountType: "company" });
+  const idToken = (tid?: string) =>
+    ["h", Buffer.from(JSON.stringify({ sub: "1", ...(tid ? { tid } : {}) }), "utf8").toString("base64url"), "s"].join(
+      ".",
+    );
+  const respondWith =
+    (body: Record<string, unknown>): FetchLike =>
+    async () => ({ ok: true, status: 200, json: async () => body });
+
+  const ok = await exchangeCode("microsoft", "c", "https://app/cb", {
+    client,
+    accountType: "company",
+    fetchImpl: respondWith({ access_token: "at", id_token: idToken("tenant-123") }),
+  });
+  assert.equal(ok.token.accessToken, "at");
+  assert.deepEqual(ok.hosts, PROVIDERS.microsoft!.hosts);
+
+  await assert.rejects(
+    () =>
+      exchangeCode("microsoft", "c", "https://app/cb", {
+        client,
+        accountType: "company",
+        fetchImpl: respondWith({ access_token: "at", id_token: idToken("other-tenant") }),
+      }),
+    /not in the tenant-123 tenant/,
+  );
+  await assert.rejects(
+    () =>
+      exchangeCode("microsoft", "c", "https://app/cb", {
+        client,
+        accountType: "company",
+        fetchImpl: respondWith({ access_token: "at" }),
+      }),
+    /not in the tenant-123 tenant/,
+  );
+
+  const personal = await exchangeCode("microsoft", "c", "https://app/cb", {
+    client: await r("microsoft", { accountType: "personal" }),
     accountType: "personal",
     fetchImpl: respondWith({ access_token: "at" }),
   });

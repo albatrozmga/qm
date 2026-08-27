@@ -111,6 +111,9 @@ const PLAYBOOKS: Readonly<Record<string, readonly string[]>> = {
   GOOGLE_OAUTH_CLIENT_SECRET: ["From your Google Cloud OAuth client (APIs & Services -> Credentials)."],
   DROPBOX_OAUTH_CLIENT_SECRET: ["From your Dropbox app console (https://www.dropbox.com/developers/apps)."],
   LINEAR_OAUTH_CLIENT_SECRET: ["From your Linear OAuth application settings."],
+  MICROSOFT_OAUTH_CLIENT_SECRET: [
+    "From your Entra ID app registration (Certificates & secrets); paste the secret Value, not its ID.",
+  ],
 };
 
 const FORMAT_HINTS: Readonly<Record<string, { prefix: string; label: string }>> = {
