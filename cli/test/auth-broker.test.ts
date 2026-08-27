@@ -134,6 +134,18 @@ test("docker and AWS wire the broker with parity", () => {
   assert.equal(serviceEnvironment(aws, "auth").PORT, "8080");
 });
 
+test("docker local wires the host daemon coordinates only into core", () => {
+  const local = configWith(
+    configText().replace(
+      '"plugins": [],',
+      '"sandbox": { "backend": "local", "image": "qm-sandbox-local:latest" }, "plugins": [],',
+    ),
+  );
+  assert.equal(dockerServiceEnv(local, "core").DOCKER_HOST, "unix:///var/run/docker.sock");
+  assert.equal(dockerServiceEnv(local, "core").QM_CORE_CONTAINER, "qm-acme-core");
+  assert.equal(dockerServiceEnv(local, "portal").DOCKER_HOST, undefined);
+});
+
 test("the broker's generated secrets reach both sides under the right names", () => {
   const config = brokerConfig();
   const secrets = computedSecrets(config);
