@@ -1,0 +1,77 @@
+name: sync-albatroz-patches
+
+# Mantém o branch albatroz-patches (= upstream main + patches da Albatroz)
+# rebaseado sobre yc-software/qm@main. Rebase limpo + testes verdes → push.
+# Conflito ou teste quebrado → abre issue. O deploy na VM continua manual
+# (azure/setup-vm.sh no repo qm-deploy).
+
+on:
+  schedule:
+    - cron: "0 9 * * 1-5" # dias úteis, 06:00 América/São_Paulo
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency:
+  group: sync-albatroz-patches
+  cancel-in-progress: false
+
+jobs:
+  rebase:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: albatroz-patches
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Fetch upstream
+        id: fetch
+        run: |
+          git remote add upstream https://github.com/yc-software/qm
+          git fetch -q upstream main
+          behind=$(git rev-list --count HEAD..upstream/main)
+          echo "behind=$behind" >> "$GITHUB_OUTPUT"
+          echo "Atrás do upstream: $behind commit(s)"
+
+      - name: Rebase onto upstream/main
+        if: steps.fetch.outputs.behind != '0'
+        id: rebase
+        run: |
+          git config user.name "albatroz-bot"
+          git config user.email "ti@albatrozmga.com"
+          git rebase upstream/main
+
+      - name: Install deps
+        if: steps.fetch.outputs.behind != '0'
+        run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund --allow-remote=all
+
+      - name: Typecheck + connector tests
+        if: steps.fetch.outputs.behind != '0'
+        run: |
+          npm run typecheck
+          node --experimental-test-module-mocks --test \
+            test/oauth.test.ts test/connectors.test.ts test/connector-status.test.ts \
+            test/oauth-routes.test.ts test/connector-client-store.test.ts
+
+      - name: Push rebased branch
+        if: steps.fetch.outputs.behind != '0'
+        run: git push --force-with-lease origin albatroz-patches
+
+      - name: Open issue on failure
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="sync albatroz-patches falhou: rebase ou testes ($(date -u +%Y-%m-%d))"
+          existing=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --search "sync albatroz-patches falhou" --json number --jq length)
+          if [ "$existing" = "0" ]; then
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "$title" --body \
+              "O rebase automático de albatroz-patches sobre yc-software/qm@main falhou (conflito ou teste quebrado). Ver o run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID — resolver manualmente: git fetch upstream && git rebase upstream/main no branch, ajustar o patch do conector, push."
+          fi
