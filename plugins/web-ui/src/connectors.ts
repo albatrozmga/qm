@@ -43,6 +43,10 @@ const CONNECTOR_LABELS: Record<string, { name: string; hosts: string }> = {
     name: "Dropbox",
     hosts: "Files & folders",
   },
+  microsoft: {
+    name: "Microsoft 365",
+    hosts: "Outlook, OneDrive & SharePoint",
+  },
   x: {
     name: "X (Twitter)",
     hosts: "Posts & profile",
