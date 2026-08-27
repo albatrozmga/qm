@@ -173,6 +173,27 @@ const googleExchange: OAuthExchangeAdapter = async (args) => {
   return { hosts, token };
 };
 
+const microsoftExchange: OAuthExchangeAdapter = async (args) => {
+  const { client, accountType } = args;
+  const { hosts, token, raw } = await defaultExchange(args);
+  if (accountType === "company" && client.tenantId) {
+    const idToken = typeof raw?.id_token === "string" ? raw.id_token : "";
+    let claims: Record<string, unknown> | undefined;
+    try {
+      if (idToken) claims = decodeJwt(idToken);
+    } catch (e) {
+      swallow("microsoft id_token decode", e);
+    }
+    const tid = typeof claims?.tid === "string" ? claims.tid : "";
+    if (tid.toLowerCase() !== client.tenantId.toLowerCase()) {
+      throw new Error(
+        `connected account is not in the ${client.tenantId} tenant — pick your company Microsoft account`,
+      );
+    }
+  }
+  return { hosts, token };
+};
+
 const github = makeTokenAdapters({ acceptJson: true, rejectErrorBody: true, label: "github" });
 
 const x = makeTokenAdapters({ acceptJson: true, rejectErrorBody: true, label: "x", clientAuth: "basic" });
@@ -415,6 +436,43 @@ export const PROVIDERS: Record<string, OAuthProviderConfig> = {
     },
   },
 
+  microsoft: {
+    hosts: ["graph.microsoft.com"],
+    authUrl: "https://login.microsoftonline.com/organizations/oauth2/v2.0/authorize",
+    tokenUrl: "https://login.microsoftonline.com/organizations/oauth2/v2.0/token",
+    scopes: [
+      "openid",
+      "email",
+      "offline_access",
+      "User.Read",
+      "Mail.ReadWrite",
+      "Mail.Send",
+      "Calendars.ReadWrite",
+      "Files.ReadWrite.All",
+      "Sites.Read.All",
+      "Tasks.ReadWrite",
+    ],
+    clientIdEnv: "MICROSOFT_OAUTH_CLIENT_ID",
+    clientSecretEnv: "MICROSOFT_OAUTH_CLIENT_SECRET",
+    redirectPath: "microsoft/callback",
+    consentMode: "standard",
+    egressRule: ["graph.microsoft.com", "login.microsoftonline.com"],
+    exchange: microsoftExchange,
+    setupGuide: {
+      console: "Microsoft Entra admin center → App registrations",
+      url: "https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade",
+      steps: [
+        "Register an application (supported account types: accounts in any organizational directory).",
+        "Under Authentication, add a Web platform with the redirect URI shown below.",
+        "Under API permissions, add delegated Microsoft Graph permissions matching the scopes below, then grant admin consent.",
+        "Under Certificates & secrets, create a client secret (paste its Value, not its ID).",
+        "Paste the Application (client) ID + client secret below. Optionally set MICROSOFT_TENANT_ID to pin company connections to your tenant.",
+      ],
+      scopesRationale:
+        "Mail.ReadWrite/Mail.Send back Outlook mail, Calendars.ReadWrite the calendar, Files.ReadWrite.All OneDrive, Sites.Read.All SharePoint reads, Tasks.ReadWrite To Do; openid+email identify the account, offline_access issues the refresh token.",
+    },
+  },
+
   x: {
     hosts: ["api.x.com"],
     authUrl: "https://x.com/i/oauth2/authorize",
@@ -449,6 +507,7 @@ export interface ResolvedClient {
   scopes?: string[];
   redirectAllowlist?: string[];
   hostedDomain?: string;
+  tenantId?: string;
   clientRef: string;
 }
 
@@ -462,7 +521,14 @@ export function createSecretClientResolver(secrets: SecretSource = createEnvSecr
     const secret = await secrets.get(p.clientSecretEnv);
     if (!id || !secret) throw new Error(`provider not configured — set ${p.clientIdEnv} and ${p.clientSecretEnv}`);
     const hostedDomain = await secrets.get("GOOGLE_WORKSPACE_DOMAIN");
-    return { id, secret, clientRef: `env:${providerName}`, ...(hostedDomain ? { hostedDomain } : {}) };
+    const tenantId = await secrets.get("MICROSOFT_TENANT_ID");
+    return {
+      id,
+      secret,
+      clientRef: `env:${providerName}`,
+      ...(hostedDomain ? { hostedDomain } : {}),
+      ...(tenantId ? { tenantId } : {}),
+    };
   };
 }
 
