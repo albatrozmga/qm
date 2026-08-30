@@ -26,6 +26,7 @@ import {
   Plus,
   RefreshCw,
   SquareTerminal,
+  Trash2,
   Users,
   X,
   type IconNode,
@@ -40,6 +41,7 @@ import {
   inheritedTranscript,
   isContinuable,
   entriesToMessages,
+  deleteSession,
   regenerateTitle,
   sharedContextLabel,
   slackThreadUrl,
@@ -1101,6 +1103,16 @@ function sessionMenuPopover(s: CoreSession): TemplateResult {
       <button class="session-menu-option" type="button" role="menuitem" @click=${() => setArchived(s, !archived)}>
         ${archived ? icon(ArchiveRestore, 15) : icon(Archive, 15)}<span>${archived ? "Unarchive" : "Archive"}</span>
       </button>
+      ${s.type === "dm"
+        ? html`<button
+            class="session-menu-option danger"
+            type="button"
+            role="menuitem"
+            @click=${() => void deleteSessionAction(s)}
+          >
+            ${icon(Trash2, 15)}<span>${pendingDeleteId === s.id ? "Confirm delete" : "Delete"}</span>
+          </button>`
+        : nothing}
       ${sessionColorRow(s)}
     </div>
   `;
@@ -1225,6 +1237,7 @@ async function copySessionLink(s: CoreSession): Promise<void> {
 
 function toggleSessionMenu(e: Event, id: string): void {
   e.stopPropagation();
+  pendingDeleteId = null;
   sessionsState.openMenuId = sessionsState.openMenuId === id ? null : id;
   renderList();
 }
@@ -1419,6 +1432,26 @@ function setArchived(s: CoreSession, archived: boolean): void {
   sessionsState.openMenuId = null;
   if (archived && s.id) closeSessionSurfaces(s.id);
   void persistSessionPatch(s.id, { archived });
+}
+
+let pendingDeleteId: string | null = null;
+
+async function deleteSessionAction(s: CoreSession): Promise<void> {
+  if (pendingDeleteId !== s.id) {
+    pendingDeleteId = s.id;
+    renderList();
+    return;
+  }
+  pendingDeleteId = null;
+  sessionsState.openMenuId = null;
+  closeSessionSurfaces(s.id);
+  sessionsState.list = sessionsState.list.filter((x) => x.id !== s.id);
+  renderList();
+  try {
+    await deleteSession(s.id);
+  } catch {
+    await refreshSessions({ silent: true });
+  }
 }
 
 function setPinned(s: CoreSession, pinned: boolean): void {
