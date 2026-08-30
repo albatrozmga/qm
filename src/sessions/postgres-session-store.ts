@@ -190,6 +190,7 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
     `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS forked_from_session_id TEXT`,
     `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS forked_from_title TEXT`,
     `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS fork_boundary_seq INT`,
+    `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS deleted_at BIGINT`,
     `DO $$ BEGIN
        IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'sessions_fork_provenance_pair') THEN
          ALTER TABLE sessions ADD CONSTRAINT sessions_fork_provenance_pair
@@ -659,6 +660,15 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
       );
     },
 
+    async markSessionDeleted(sessionId, at): Promise<void> {
+      await q("UPDATE sessions SET deleted_at = $2 WHERE id = $1", [sessionId, at]);
+    },
+
+    async listDeletedBefore(cutoff): Promise<string[]> {
+      const rows = await q("SELECT id FROM sessions WHERE deleted_at IS NOT NULL AND deleted_at < $1", [cutoff]);
+      return rows.map((r) => r.id as string);
+    },
+
     async deleteSession(sessionId): Promise<void> {
       await withPgTransaction(await pool(), async (client) => {
         await lockSession(client, sessionId);
@@ -699,7 +709,7 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
            FROM sessions s
            JOIN participants p ON p.session_id = s.id
            LEFT JOIN session_entries e ON e.session_id = s.id AND e.type = 'user'
-          WHERE p.principal_id = $1
+          WHERE p.principal_id = $1 AND s.deleted_at IS NULL
           GROUP BY s.id, p.title, p.archived, p.pinned, p.color, p.valid_from, p.valid_to, p.valid_from_seq, p.valid_to_seq`,
         [principalId],
       );
