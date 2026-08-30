@@ -305,6 +305,7 @@ export interface App {
     principalId: string,
     patch: { title?: string | null; archived?: boolean; pinned?: boolean; color?: string | null },
   ): Promise<Session | null>;
+  deleteSessionForViewer(sessionId: string, principalId: string): Promise<"ok" | "not_found" | "forbidden">;
   regenerateTitle(sessionId: string, principalId: string): Promise<{ title: string | null } | null>;
   spawnSession(principalId: string, opts: { scopeId: ScopeId; title?: string }): Promise<{ session: Session } | null>;
   discardSession(sessionId: string, principalId: string): Promise<boolean>;

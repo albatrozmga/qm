@@ -45,6 +45,7 @@ export function createSessionMethods(
   | "membershipControlsScope"
   | "authorizesCapabilityScope"
   | "updateSession"
+  | "deleteSessionForViewer"
   | "regenerateTitle"
   | "spawnSession"
   | "discardSession"
@@ -504,6 +505,14 @@ export function createSessionMethods(
       await deps.sessions.updateParticipantView(sessionId, principalId, patch);
       const after = await sessionsForViewer(principalId);
       return after.find((s) => s.id === sessionId) ?? null;
+    },
+
+    async deleteSessionForViewer(sessionId, principalId) {
+      const session = (await sessionsForViewer(principalId)).find((s) => s.id === sessionId);
+      if (!session) return "not_found";
+      if (session.type !== "dm") return "forbidden";
+      await deps.sessions.markSessionDeleted(sessionId, Date.now());
+      return "ok";
     },
 
     async regenerateTitle(sessionId, principalId) {
