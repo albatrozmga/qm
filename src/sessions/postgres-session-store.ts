@@ -196,7 +196,7 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
        FROM sessions s
        JOIN participants p ON p.session_id = s.id
        LEFT JOIN session_entries e ON e.session_id = s.id AND e.type = 'user'
-      WHERE p.principal_id = $1${extraWhere}
+      WHERE p.principal_id = $1 AND s.deleted_at IS NULL${extraWhere}
       GROUP BY s.id, p.title, p.archived, p.pinned, p.color, p.valid_from, p.valid_to, p.valid_from_seq, p.valid_to_seq`;
   const participantSessions = async (principalId: string, opts?: { limit: number }): Promise<Session[]> => {
     const limit = opts ? Math.max(0, Math.floor(opts.limit)) : undefined;
@@ -265,6 +265,7 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
           `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_activity BIGINT`,
           `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS messages INT`,
           `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS turns INT`,
+          `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS deleted_at BIGINT`,
           `CREATE TABLE IF NOT EXISTS session_entries(
         session_id TEXT NOT NULL, seq INT NOT NULL, parent_seq INT,
         type TEXT NOT NULL, payload TEXT, scope_label TEXT NOT NULL, created_at BIGINT NOT NULL,
@@ -1126,6 +1127,15 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
         "UPDATE participants SET valid_to = $3, valid_to_seq = (SELECT COALESCE(MAX(seq) + 1, 0) FROM session_entries WHERE session_id = $1) WHERE session_id = $1 AND principal_id = $2 AND valid_to IS NULL",
         [sessionId, principalId, now()],
       );
+    },
+
+    async markSessionDeleted(sessionId, at): Promise<void> {
+      await q("UPDATE sessions SET deleted_at = $2 WHERE id = $1", [sessionId, at]);
+    },
+
+    async listDeletedBefore(cutoff): Promise<string[]> {
+      const rows = await q("SELECT id FROM sessions WHERE deleted_at IS NOT NULL AND deleted_at < $1", [cutoff]);
+      return rows.map((r) => r.id as string);
     },
 
     async deleteSession(sessionId): Promise<void> {
