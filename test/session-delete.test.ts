@@ -18,13 +18,23 @@ function dm(text: string, thread: string, externalId: string): TurnRequest {
 
 test("o dono soft-deleta o próprio chat pessoal e ele some de toda visão", async () => {
   const { app } = freshApp();
-  const outcome = await app.turn(dm("apaga depois", "web:alice:del1", "alice"));
+  const outcome = await app.turn(dm("apaga depois melão", "web:alice:del1", "alice"));
   const sessionId = outcome.sessionId!;
 
   assert.equal(await app.deleteSessionForViewer(sessionId, "alice"), "ok");
   assert.equal(await app.getSessionForViewer(sessionId, "alice"), null, "some até para o dono");
   assert.ok(!(await app.listSessions("alice")).some((s) => s.id === sessionId), "fora da lista");
   assert.equal(await app.deleteSessionForViewer(sessionId, "alice"), "not_found", "repetido: já invisível");
+  assert.ok(
+    !(await app.searchSessions("alice", "melão")).some((h) => h.sessionId === sessionId),
+    "não aparece mais na busca",
+  );
+});
+
+test("sessão de DM do Slack é recusada (threadRef não é web:, evita destravar a conversa no Slack)", async () => {
+  const { app } = freshApp();
+  const outcome = await app.turn(dm("dm do slack", "dm:D12345", "alice"));
+  assert.equal(await app.deleteSessionForViewer(outcome.sessionId!, "alice"), "forbidden");
 });
 
 test("não-participante não deleta (e não descobre que existe)", async () => {
