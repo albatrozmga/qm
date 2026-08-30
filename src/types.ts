@@ -104,6 +104,7 @@ export interface Session {
   pinned?: boolean;
   color?: string;
   status?: SessionStatus | null;
+  deletedAt?: number;
   forkedFrom?: { sessionId: string; title?: string | null };
   forkBoundarySeq?: number;
   parentSessionId?: string;

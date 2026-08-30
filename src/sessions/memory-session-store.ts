@@ -103,6 +103,7 @@ export function createMemorySessionStore(opts: StoreOptions = {}): SessionStore 
   const participantSession = (sessionId: string, principalId: string): Session | null => {
     const s = sessions.get(sessionId);
     if (!s) return null;
+    if (s.deletedAt !== undefined) return null;
     const view = windows.get(sessionId)?.get(principalId);
     const all = entries.get(sessionId) ?? [];
     const log = all.filter((e) => e.type === "user");
@@ -248,6 +249,15 @@ export function createMemorySessionStore(opts: StoreOptions = {}): SessionStore 
       if (held && now() < held.expiresAt) return false;
       await this.deleteSession(sessionId);
       return true;
+    },
+
+    async markSessionDeleted(sessionId, at) {
+      const s = sessions.get(sessionId);
+      if (s) s.deletedAt = at;
+    },
+
+    async listDeletedBefore(cutoff) {
+      return [...sessions.values()].filter((s) => s.deletedAt !== undefined && s.deletedAt < cutoff).map((s) => s.id);
     },
 
     async forceReleaseLease(sessionId) {
