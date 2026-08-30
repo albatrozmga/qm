@@ -101,6 +101,7 @@ export function createSessionMethods(
   | "updateSession"
   | "detachSession"
   | "cancelSessionGoal"
+  | "deleteSessionForViewer"
   | "regenerateTitle"
   | "spawnSession"
   | "discardSession"
@@ -1020,6 +1021,14 @@ export function createSessionMethods(
       } finally {
         await deps.sessions.releaseLease(lease);
       }
+    },
+
+    async deleteSessionForViewer(sessionId, principalId) {
+      const session = (await sessionsForViewer(principalId)).find((s) => s.id === sessionId);
+      if (!session) return "not_found";
+      if (session.type !== "dm") return "forbidden";
+      await deps.sessions.markSessionDeleted(sessionId, Date.now());
+      return "ok";
     },
 
     async regenerateTitle(sessionId, principalId) {
