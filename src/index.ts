@@ -12,6 +12,7 @@ import { errMessage, reportFailureAs } from "./util/errors.ts";
 import { slackAccountConfigsFromEnv, slackPluginConfigFromEnv, startSlackPlugin } from "./slack/index.ts";
 import { createSlackRuntimeReconciler } from "./surfaces/slack-runtime.ts";
 import { migrateRegisteredPgSchemas } from "./persistence/pg-pool.ts";
+import { startDeletedSessionSweeper } from "./sessions/deleted-session-sweeper.ts";
 
 const config = loadConfig();
 
@@ -83,6 +84,7 @@ if (config.deployProvider === "docker") {
 
 if (config.backgroundWorkEnabled && !config.backgroundDeploymentId) {
   built.scheduler.start(1000);
+  startDeletedSessionSweeper(built.sessions);
 } else if (!config.backgroundDeploymentId) {
   console.log("[qm] background work disabled; scheduler and runtime loops will not start");
 }
