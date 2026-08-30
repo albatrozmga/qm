@@ -53,6 +53,27 @@ async function patch(
   return { status: r.status, ...parsed };
 }
 
+test("POST /v1/sessions/:id/delete soft-deletes then 404s on repeat", async () => {
+  const srv = start();
+  try {
+    const id = await newSession(srv.base, "web:U1:delete-route");
+    const post = (body: Record<string, unknown>) =>
+      fetch(`${srv.base}/v1/sessions/${encodeURIComponent(id)}/delete`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+
+    assert.equal((await post({})).status, 400, "principalId is required");
+    const ok = await post({ principalId: "U1" });
+    assert.equal(ok.status, 200);
+    assert.deepEqual(await ok.json(), { ok: true });
+    assert.equal((await post({ principalId: "U1" })).status, 404, "already deleted");
+  } finally {
+    await srv.close();
+  }
+});
+
 test("POST /v1/sessions/:id pins and colors the viewer's row; null clears; casing normalizes", async () => {
   const srv = start();
   try {
