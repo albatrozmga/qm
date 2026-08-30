@@ -4,6 +4,7 @@ import { createServer } from "./api/server.ts";
 import { errMessage } from "./util/errors.ts";
 import { slackPluginConfigFromEnv, startSlackPlugin } from "./slack/index.ts";
 import { createSlackRuntimeReconciler } from "./surfaces/slack-runtime.ts";
+import { startDeletedSessionSweeper } from "./sessions/deleted-session-sweeper.ts";
 
 const config = loadConfig();
 
@@ -32,6 +33,7 @@ server.listen(config.port, () => {
 
 if (config.backgroundWorkEnabled) {
   built.scheduler.start(1000);
+  startDeletedSessionSweeper(built.sessions);
 } else {
   console.log("[qm] background work disabled; scheduler and runtime loops will not start");
 }
