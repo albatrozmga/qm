@@ -466,6 +466,8 @@ export interface SessionStore {
 
   deleteSession(sessionId: string): Promise<void>;
   deleteSessionIfEmpty(sessionId: string): Promise<boolean>;
+  markSessionDeleted(sessionId: string, at: number): Promise<void>;
+  listDeletedBefore(cutoff: number): Promise<string[]>;
 
   updateParticipantView(sessionId: string, principalId: string, patch: ParticipantViewPatch): Promise<void>;
 

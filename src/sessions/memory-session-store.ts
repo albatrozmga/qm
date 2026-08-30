@@ -157,6 +157,15 @@ export function createMemorySessionStore(opts: StoreOptions = {}): SessionStore 
       return true;
     },
 
+    async markSessionDeleted(sessionId, at) {
+      const s = sessions.get(sessionId);
+      if (s) s.deletedAt = at;
+    },
+
+    async listDeletedBefore(cutoff) {
+      return [...sessions.values()].filter((s) => s.deletedAt !== undefined && s.deletedAt < cutoff).map((s) => s.id);
+    },
+
     async forceReleaseLease(sessionId) {
       leases.delete(sessionId);
     },
@@ -335,6 +344,7 @@ export function createMemorySessionStore(opts: StoreOptions = {}): SessionStore 
       for (const id of ids) {
         const s = sessions.get(id);
         if (!s) continue;
+        if (s.deletedAt !== undefined) continue;
         const view = windows.get(id)?.get(principalId);
         const all = entries.get(id) ?? [];
         const log = all.filter((e) => e.type === "user");
