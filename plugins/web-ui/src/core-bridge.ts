@@ -210,6 +210,13 @@ export async function updateSession(
   });
 }
 
+export async function deleteSession(id: string): Promise<{ ok: boolean }> {
+  return api<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(id)}/delete`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+}
+
 export async function forkSession(
   id: string,
   upToSeq?: number,
