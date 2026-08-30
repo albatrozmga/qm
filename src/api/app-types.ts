@@ -377,6 +377,7 @@ export interface App {
       status?: Session["status"];
     },
   ): Promise<Session | null>;
+  deleteSessionForViewer(sessionId: string, principalId: string): Promise<"ok" | "not_found" | "forbidden">;
   regenerateTitle(sessionId: string, principalId: string): Promise<{ title: string | null } | null>;
   detachSession(sessionId: string, principalId: string): Promise<{ detached: true } | null>;
   adoptSession(sessionId: string, parentSessionId: string, principalId: string): Promise<{ adopted: true } | null>;
