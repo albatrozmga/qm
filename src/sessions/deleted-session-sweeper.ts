@@ -18,7 +18,10 @@ export async function sweepDeletedSessions(sessions: SessionStore, now: number):
 }
 
 export function startDeletedSessionSweeper(sessions: SessionStore): () => void {
-  const run = () => void sweepDeletedSessions(sessions, Date.now());
+  const run = () =>
+    void sweepDeletedSessions(sessions, Date.now()).catch((e) =>
+      console.error(`[deleted-session-sweeper] sweep failed: ${e instanceof Error ? e.message : e}`),
+    );
   run();
   const timer = setInterval(run, SWEEP_INTERVAL_MS);
   timer.unref();
