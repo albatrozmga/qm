@@ -909,7 +909,7 @@ function sessionMenuPopover(s: CoreSession): TemplateResult {
       <button class="session-menu-option" type="button" role="menuitem" @click=${() => setArchived(s, !archived)}>
         ${archived ? icon(ArchiveRestore, 15) : icon(Archive, 15)}<span>${archived ? "Unarchive" : "Archive"}</span>
       </button>
-      ${s.type === "dm"
+      ${s.type === "dm" && s.threadRef.startsWith("web:")
         ? html`<button
             class="session-menu-option danger"
             type="button"

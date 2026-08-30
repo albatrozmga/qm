@@ -510,7 +510,7 @@ export function createSessionMethods(
     async deleteSessionForViewer(sessionId, principalId) {
       const session = (await sessionsForViewer(principalId)).find((s) => s.id === sessionId);
       if (!session) return "not_found";
-      if (session.type !== "dm") return "forbidden";
+      if (session.type !== "dm" || !session.threadRef.startsWith("web:")) return "forbidden";
       await deps.sessions.markSessionDeleted(sessionId, Date.now());
       return "ok";
     },
