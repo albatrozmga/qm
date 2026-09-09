@@ -1831,6 +1831,7 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
            JOIN sessions s ON s.id = i.session_id
           WHERE i.tenant_id = ${TENANT} AND i.search @@ to_tsquery('simple', $2)
             AND ${SEARCHABLE_ITEM("i")}
+            AND s.deleted_at IS NULL
             AND ${withinParticipantWindow("i", "p")}
           ORDER BY i.created_at DESC, i.session_id, i.seq DESC
           LIMIT $3`,
