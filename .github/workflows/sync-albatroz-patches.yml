@@ -60,7 +60,8 @@ jobs:
             test/oauth.test.ts test/connectors.test.ts test/connector-status.test.ts \
             test/oauth-routes.test.ts test/connector-client-store.test.ts \
             test/session-delete-store.test.ts test/session-delete.test.ts \
-            test/deleted-session-sweeper.test.ts test/session-view-patch.test.ts
+            test/deleted-session-sweeper.test.ts test/session-view-patch.test.ts \
+            test/pg-migration-checksums.test.ts
 
       - name: Push rebased branch
         if: steps.fetch.outputs.behind != '0'
