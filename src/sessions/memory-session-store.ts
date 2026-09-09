@@ -580,6 +580,7 @@ export function createMemorySessionStore(opts: StoreOptions = {}): SessionStore 
         const indexed = searchIndex.get(sessionId) ?? [];
         const session = sessions.get(sessionId);
         if (!session) continue;
+        if (session.deletedAt !== undefined) continue;
         for (const row of indexed) {
           if (!entryWithinTenure(row, win)) continue;
           if (!matchesSearchTerms(row.text, terms)) continue;
