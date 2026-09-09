@@ -52,13 +52,15 @@ jobs:
         if: steps.fetch.outputs.behind != '0'
         run: npm ci --no-audit --no-fund || npm install --no-audit --no-fund --allow-remote=all
 
-      - name: Typecheck + connector tests
+      - name: Typecheck + patch tests (connectors + chat delete)
         if: steps.fetch.outputs.behind != '0'
         run: |
           npm run typecheck
           node --experimental-test-module-mocks --test \
             test/oauth.test.ts test/connectors.test.ts test/connector-status.test.ts \
-            test/oauth-routes.test.ts test/connector-client-store.test.ts
+            test/oauth-routes.test.ts test/connector-client-store.test.ts \
+            test/session-delete-store.test.ts test/session-delete.test.ts \
+            test/deleted-session-sweeper.test.ts test/session-view-patch.test.ts
 
       - name: Push rebased branch
         if: steps.fetch.outputs.behind != '0'
