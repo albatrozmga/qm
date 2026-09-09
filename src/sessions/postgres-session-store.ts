@@ -342,7 +342,6 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
           `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS last_activity BIGINT`,
           `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS messages INT`,
           `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS turns INT`,
-          `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS deleted_at BIGINT`,
           `CREATE TABLE IF NOT EXISTS session_entries(
         session_id TEXT NOT NULL, seq INT NOT NULL, parent_seq INT,
         type TEXT NOT NULL, payload TEXT, scope_label TEXT NOT NULL, created_at BIGINT NOT NULL,
@@ -796,6 +795,13 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
           `CREATE INDEX CONCURRENTLY IF NOT EXISTS sessions_by_activity
              ON sessions((COALESCE(last_activity, created_at)) DESC, id DESC)`,
         ],
+      },
+      {
+        // Patch Albatroz (soft delete de chats): namespace próprio para nunca
+        // colidir com a numeração sessions/store/NNNN do upstream.
+        id: "albatroz/sessions/0001",
+        expectedChecksum: "b05c992e55486906fd2a06ea157f7f8808b4c727c8c77ef6d09f4ceb78ad8ae7",
+        statements: [`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS deleted_at BIGINT`],
       },
     ],
     [
