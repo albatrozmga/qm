@@ -41,7 +41,10 @@ test("não-participante não deleta (e não descobre que existe)", async () => {
   const { app } = freshApp();
   const outcome = await app.turn(dm("privado", "web:alice:del2", "alice"));
   assert.equal(await app.deleteSessionForViewer(outcome.sessionId!, "carol"), "not_found");
-  assert.ok((await app.listSessions("alice")).some((s) => s.id === outcome.sessionId), "segue viva para o dono");
+  assert.ok(
+    (await app.listSessions("alice")).some((s) => s.id === outcome.sessionId),
+    "segue viva para o dono",
+  );
 });
 
 test("sessão de canal/grupo é recusada", async () => {
