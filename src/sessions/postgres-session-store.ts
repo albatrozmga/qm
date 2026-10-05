@@ -797,9 +797,7 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
         ],
       },
       {
-        // Patch Albatroz (soft delete de chats): namespace próprio para nunca
-        // colidir com a numeração sessions/store/NNNN do upstream.
-        id: "albatroz/sessions/0001",
+        id: "sessions/store/albatroz-0001",
         expectedChecksum: "b05c992e55486906fd2a06ea157f7f8808b4c727c8c77ef6d09f4ceb78ad8ae7",
         statements: [`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS deleted_at BIGINT`],
       },
