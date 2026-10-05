@@ -284,3 +284,48 @@ test("a transient docker port failure does not report the deployment missing", a
 
   await assert.rejects(provider.resolveEndpoint!(running, running.versions[0]!), /Cannot connect to the Docker daemon/);
 });
+
+test("Docker deployments get a durable data volume that outlives destroy", async () => {
+  const calls: string[][] = [];
+  const dockerExec: DockerExec = async (args) => {
+    calls.push(args);
+    if (args[0] === "port") return { code: 0, stdout: "127.0.0.1:49500\n", stderr: "" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const store = createDeployStore();
+  const deployment = await store.create({
+    ownerScopeId: scopeId("personal", "U1"),
+    createdBy: "U1",
+    entrypoint: "node server.js",
+    snapshotDir: "/snap/data",
+    env: { DATA_DIR: "./data", PORT: "3000" },
+  });
+  const provider = createDockerDeployProvider({ dockerExec });
+
+  assert.equal(provider.profile.dataDir, "/data");
+  await provider.apply(deployment, deployment.versions[0]!);
+  const run = calls.find((args) => args[0] === "run")!.join(" ");
+  assert.ok(run.includes(`-v /snap/data:/app:ro -v agent-deploy-data-${deployment.id}:/data`));
+  assert.ok(run.endsWith(`-e PORT=8080 -e DATA_DIR=/data node:24-alpine sh -c node server.js`));
+  await provider.destroy(deployment);
+  assert.ok(!calls.some((args) => args[0] === "volume"));
+});
+
+test("a Docker deployment that crashes on boot points the author at the data directory", async () => {
+  const dockerExec: DockerExec = async (args) => {
+    if (args[0] === "port") return { code: 1, stdout: "", stderr: "Error: No public port '8080/tcp' published" };
+    if (args[0] === "logs")
+      return { code: 0, stdout: "", stderr: "Error: EROFS: read-only file system, mkdir '/app/.data'\n" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const store = createDeployStore();
+  const deployment = await store.create({
+    ownerScopeId: scopeId("personal", "U1"),
+    createdBy: "U1",
+    entrypoint: "node server.js",
+    snapshotDir: "/snap/ro",
+  });
+  const provider = createDockerDeployProvider({ dockerExec });
+
+  await assert.rejects(provider.apply(deployment, deployment.versions[0]!), /\$DATA_DIR=\/data.*EROFS/s);
+});
