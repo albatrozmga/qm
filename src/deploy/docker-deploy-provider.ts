@@ -19,6 +19,7 @@ import {
 } from "./shared-deploy-provider.ts";
 
 const APP_PORT = 8080;
+const DATA_DIR = "/data";
 const APP_READY_WINDOW_SEC = 60;
 const RUN_TIMEOUT_MS = 300_000;
 const DAEMON_PROBE_TIMEOUT_MS = 10_000;
@@ -60,6 +61,7 @@ export function createDockerDeployProvider(opts: DockerDeployProviderOptions = {
       dexec(["exec", name(d), "sh", "-c", script], timeoutSec * 1000);
   const checked = recentAppChecks();
   const network = (d: Deployment) => `${name(d)}-net`;
+  const dataVolume = (d: Deployment) => `agent-deploy-data-${d.id}`;
   const exists = async (d: Deployment): Promise<boolean> => (await dockerContainerNetworks(dexec, name(d))) !== null;
   const publishedPort = async (container: string): Promise<number | null> => {
     const r = await dexec(["port", container, `${APP_PORT}/tcp`]);
@@ -71,7 +73,7 @@ export function createDockerDeployProvider(opts: DockerDeployProviderOptions = {
   };
 
   return {
-    profile: { managedScaleToZero: false },
+    profile: { managedScaleToZero: false, dataDir: DATA_DIR },
 
     async apply(d: Deployment, version: DeploymentVersion): Promise<DeployEndpoint> {
       const net = await ensureDockerNetwork(dexec, network(d));
@@ -97,11 +99,15 @@ export function createDockerDeployProvider(opts: DockerDeployProviderOptions = {
           `127.0.0.1::${APP_PORT}`,
           "-v",
           `${version.snapshotDir}:/app:ro`,
+          "-v",
+          `${dataVolume(d)}:${DATA_DIR}`,
           "-w",
           "/app",
+          ...envArgs,
           "-e",
           `PORT=${APP_PORT}`,
-          ...envArgs,
+          "-e",
+          `DATA_DIR=${DATA_DIR}`,
           image,
           "sh",
           "-c",
@@ -124,7 +130,9 @@ export function createDockerDeployProvider(opts: DockerDeployProviderOptions = {
       const port = await publishedPort(name(d));
       if (port === null) {
         const logs = await dexec(["logs", "--tail", "50", name(d)]);
-        throw new Error(`deploy exited before serving on port ${APP_PORT}: ${`${logs.stdout}${logs.stderr}`.trim()}`);
+        throw new Error(
+          `deploy exited before serving on port ${APP_PORT} (app files are read-only; write runtime state under $DATA_DIR=${DATA_DIR}): ${`${logs.stdout}${logs.stderr}`.trim()}`,
+        );
       }
       return { host: "127.0.0.1", port };
     },
