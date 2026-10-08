@@ -770,10 +770,14 @@ export function buildApp(
   const budgetOpts = {
     ...(config.budgetUsdPerWindow !== undefined ? { limitUsd: config.budgetUsdPerWindow } : {}),
     ...(config.orgBudgetUsdPerWindow !== undefined ? { orgLimitUsd: config.orgBudgetUsdPerWindow } : {}),
+    ...(config.budgetUsdOverrides ? { limitOverrides: config.budgetUsdOverrides } : {}),
     windowMs: config.budgetWindowMs,
   };
   const budget =
-    config.databaseUrl && (config.budgetUsdPerWindow !== undefined || config.orgBudgetUsdPerWindow !== undefined)
+    config.databaseUrl &&
+    (config.budgetUsdPerWindow !== undefined ||
+      config.orgBudgetUsdPerWindow !== undefined ||
+      config.budgetUsdOverrides !== undefined)
       ? createPostgresBudgetTracker(config.databaseUrl, budgetOpts)
       : createBudgetTracker(budgetOpts);
   const resolution = createResolutionService(

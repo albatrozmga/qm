@@ -33,6 +33,27 @@ test("caps are opt-in: an unconfigured tracker never refuses, a configured one d
   assert.equal(estimateCostUsd(1_000_000), DEFAULT_AGENT_INPUT_USD_PER_MTOK);
 });
 
+test("per-person overrides replace the default cap, matched by email case-insensitively or linked id", async () => {
+  const { installPrincipalLinks } = await import("../src/directory/person.ts");
+  const b = createBudgetTracker({
+    limitUsd: 1,
+    limitOverrides: { "Ana@X.com": 3, U_ZERO: 0 },
+    windowMs: 60_000,
+  });
+  await b.record("ana@x.com", 2, 1000);
+  assert.equal((await b.check("ana@x.com", 1000)).allowed, true, "override raised the cap");
+  await b.record("bia@x.com", 2, 1000);
+  assert.equal((await b.check("bia@x.com", 1000)).allowed, false, "no override = default cap");
+  assert.equal((await b.check("U_ZERO", 1000)).allowed, false, "a zero override blocks the person");
+  installPrincipalLinks({ canonical: (k) => (k === "U_ANA" ? "ana@x.com" : undefined), aliases: () => [] });
+  try {
+    await b.record("U_ANA", 2, 1000);
+    assert.equal((await b.check("U_ANA", 1000)).allowed, true, "Slack id linked to the email gets the override");
+  } finally {
+    installPrincipalLinks(null);
+  }
+});
+
 test("the org cap holds across principals", async () => {
   const b = createBudgetTracker({ limitUsd: 100, orgLimitUsd: 1, windowMs: 60_000 });
   await b.record("U1", 0.6, 1000);

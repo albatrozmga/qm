@@ -1,13 +1,10 @@
 import { createPgPool } from "../persistence/pg-pool.ts";
-import type { BudgetTracker } from "./budget.ts";
-import { DEFAULT_BUDGET_WINDOW_MS } from "./budget.ts";
+import type { BudgetOpts, BudgetTracker } from "./budget.ts";
+import { DEFAULT_BUDGET_WINDOW_MS, budgetLimitFor } from "./budget.ts";
 import { reportFailure } from "../util/errors.ts";
 
-export function createPostgresBudgetTracker(
-  connectionString: string,
-  opts: { limitUsd?: number; orgLimitUsd?: number; windowMs?: number } = {},
-): BudgetTracker {
-  const limitUsd = opts.limitUsd ?? Infinity;
+export function createPostgresBudgetTracker(connectionString: string, opts: BudgetOpts = {}): BudgetTracker {
+  const limitFor = budgetLimitFor(opts);
   const orgLimitUsd = opts.orgLimitUsd ?? Infinity;
   const windowMs = opts.windowMs ?? DEFAULT_BUDGET_WINDOW_MS;
   const orgKey = "@org";
@@ -28,6 +25,7 @@ export function createPostgresBudgetTracker(
         [principalId, now - windowMs],
       );
       const spentUsd = Number(rows[0]?.spent ?? 0);
+      const limitUsd = limitFor(principalId);
       if (spentUsd >= limitUsd) return { allowed: false, spentUsd, limitUsd };
       const orgRows = await q(
         "SELECT COALESCE(SUM(usd), 0) AS spent FROM budget_spend WHERE principal_id = $1 AND at >= $2",
