@@ -268,6 +268,9 @@ test("numEnv: empty and non-numeric values fall back instead of poisoning config
 test("a set-but-unparseable env value refuses to boot instead of silently taking the default", () => {
   assert.throws(() => loadConfig({ WORKERS: "not-a-number" }), /WORKERS="not-a-number" is not a number/);
   assert.throws(() => loadConfig({ BUDGET_USD_PER_WINDOW: "10$" }), /BUDGET_USD_PER_WINDOW="10\$" is not a number/);
+  assert.throws(() => loadConfig({ BUDGET_USD_OVERRIDES: '{"a@x.com":"150"}' }), /BUDGET_USD_OVERRIDES must be/);
+  assert.throws(() => loadConfig({ BUDGET_USD_OVERRIDES: "[150]" }), /BUDGET_USD_OVERRIDES must be/);
+  assert.deepEqual(loadConfig({ BUDGET_USD_OVERRIDES: '{"a@x.com":150}' }).budgetUsdOverrides, { "a@x.com": 150 });
   assert.throws(() => loadConfig({ EXECUTE_SCRATCH: "2" }), /EXECUTE_SCRATCH="2" is not a recognized boolean/);
   assert.throws(() => loadConfig({ SANDBOX_BACKEND: "docker" }), /SANDBOX_BACKEND="docker" is not recognized/);
   assert.equal(loadConfig({ WORKERS: "  " }).workers, CONFIG_DEFAULTS.workers);

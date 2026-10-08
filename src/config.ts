@@ -114,6 +114,7 @@ export interface Config {
   rateLimitWindowMs: number;
   budgetUsdPerWindow?: number;
   orgBudgetUsdPerWindow?: number;
+  budgetUsdOverrides?: Record<string, number>;
   budgetWindowMs: number;
   maxContextTokens?: number;
   execTimeoutDefaultMs: number;
@@ -972,6 +973,28 @@ function numEnvStrict(name: string, value: string | undefined): number | undefin
   return parsed;
 }
 
+function budgetOverridesEnv(value: string | undefined): Record<string, number> | undefined {
+  if (value === undefined || value.trim() === "") return undefined;
+  const fail = (): never => {
+    throw new Error(
+      `BUDGET_USD_OVERRIDES must be a JSON object of person (email or Slack ID) to USD cap, e.g. {"ana@x.com":150} — got ${JSON.stringify(value)}.`,
+    );
+  };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    return fail();
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return fail();
+  const out: Record<string, number> = {};
+  for (const [k, v] of Object.entries(parsed)) {
+    if (!k.trim() || typeof v !== "number" || !Number.isFinite(v) || v < 0) return fail();
+    out[k.trim()] = v;
+  }
+  return out;
+}
+
 function orgBrandingFromEnv(env: NodeJS.ProcessEnv): Config["brandingDefault"] {
   return sanitizeBranding({
     accent: env.ORG_BRAND_ACCENT,
@@ -1533,6 +1556,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       : {}),
     ...(numEnvStrict("ORG_BUDGET_USD_PER_WINDOW", env.ORG_BUDGET_USD_PER_WINDOW) !== undefined
       ? { orgBudgetUsdPerWindow: numEnvStrict("ORG_BUDGET_USD_PER_WINDOW", env.ORG_BUDGET_USD_PER_WINDOW) }
+      : {}),
+    ...(budgetOverridesEnv(env.BUDGET_USD_OVERRIDES) !== undefined
+      ? { budgetUsdOverrides: budgetOverridesEnv(env.BUDGET_USD_OVERRIDES) }
       : {}),
     budgetWindowMs: numEnvStrict("BUDGET_WINDOW_MS", env.BUDGET_WINDOW_MS) ?? CONFIG_DEFAULTS.budgetWindowMs,
     ...(numEnvStrict("MAX_CONTEXT_TOKENS", env.MAX_CONTEXT_TOKENS) !== undefined
