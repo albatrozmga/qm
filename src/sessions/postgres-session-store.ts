@@ -339,7 +339,7 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
               MAX(${USER_ACTIVITY}) FILTER (WHERE ${HAS_CONTENT}) AS last_activity
          FROM sessions s
          JOIN participants p ON p.session_id = s.id
-        WHERE p.principal_id = $1
+        WHERE p.principal_id = $1 AND s.deleted_at IS NULL
         GROUP BY s.scope_id`,
       [principalId],
     );
@@ -354,6 +354,7 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
     const params: unknown[] = [principalId];
     const where: string[] = [
       "p.principal_id = $1",
+      "s.deleted_at IS NULL",
       "s.parent_session_id IS NULL",
       `(s.surface IS NULL OR s.surface NOT IN ${AUTOMATION_SURFACES})`,
       HAS_CONTENT,

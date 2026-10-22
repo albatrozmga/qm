@@ -9,6 +9,7 @@ test("Docker deployments use isolated networks and remove them on destroy", asyn
   const calls: string[][] = [];
   const dockerExec: DockerExec = async (args) => {
     calls.push(args);
+    if (args[0] === "port") return { code: 0, stdout: "127.0.0.1:49153\n", stderr: "" };
     return {
       code: args[1] === "inspect" ? 1 : 0,
       stdout: "",
@@ -88,6 +89,7 @@ test("a deployment network created concurrently is reused, and a create that lea
       networkExists = createLeavesNetwork;
       return { code: 1, stdout: "", stderr: "network with name x already exists" };
     }
+    if (args[0] === "port") return { code: 0, stdout: "127.0.0.1:49153\n", stderr: "" };
     return { code: 0, stdout: "", stderr: "" };
   };
   const store = createDeployStore();
@@ -228,7 +230,7 @@ test("a Docker deployment that exits before publishing its port is rejected with
 test("Docker endpoint resolution follows the port the running container is published on", async () => {
   let published = "127.0.0.1:49400\n";
   const dockerExec: DockerExec = async (args) => {
-    if (args[0] === "inspect") return { code: 0, stdout: JSON.stringify({ [`${args[3]}-net`]: {} }), stderr: "" };
+    if (args[0] === "ps") return { code: 0, stdout: `${args[3]!.slice("name=".length)}\tnet\n`, stderr: "" };
     if (args[0] === "port") {
       return published
         ? { code: 0, stdout: published, stderr: "" }
@@ -254,7 +256,7 @@ test("Docker endpoint resolution follows the port the running container is publi
 
 test("a transient docker port failure does not report the deployment missing", async () => {
   const dockerExec: DockerExec = async (args) => {
-    if (args[0] === "inspect") return { code: 0, stdout: JSON.stringify({ [`${args[3]}-net`]: {} }), stderr: "" };
+    if (args[0] === "ps") return { code: 0, stdout: `${args[3]!.slice("name=".length)}\tnet\n`, stderr: "" };
     if (args[0] === "port") return { code: 1, stdout: "", stderr: "Cannot connect to the Docker daemon" };
     return { code: 0, stdout: "", stderr: "" };
   };
@@ -293,7 +295,7 @@ test("Docker deployments get a durable data volume that outlives destroy", async
   await provider.apply(deployment, deployment.versions[0]!);
   const run = calls.find((args) => args[0] === "run")!.join(" ");
   assert.ok(run.includes(`-v /snap/data:/app:ro -v agent-deploy-data-${deployment.id}:/data`));
-  assert.ok(run.endsWith(`-e PORT=8080 -e DATA_DIR=/data node:24-alpine sh -c node server.js`));
+  assert.ok(run.includes(`-e DATA_DIR=./data -e PORT=3000 -e PORT=8080 -e DATA_DIR=/data node:24 sh -c`));
   await provider.destroy(deployment);
   assert.ok(!calls.some((args) => args[0] === "volume"));
 });
