@@ -204,7 +204,7 @@ test("Docker deployments let the daemon pick a free host port instead of a fixed
   assert.ok(calls.some((args) => args.join(" ") === `port ${containerName} 8080/tcp`));
 });
 
-test("a Docker deployment that exits before publishing its port is rejected with its logs kept", async () => {
+test("a Docker deployment without a published port fails publish with its logs and leaves no container", async () => {
   const calls: string[][] = [];
   const dockerExec: DockerExec = async (args) => {
     calls.push(args);
@@ -224,12 +224,15 @@ test("a Docker deployment that exits before publishing its port is rejected with
 
   await assert.rejects(provider.apply(deployment, deployment.versions[0]!), /Cannot find module 'express'/);
   const portCall = calls.findIndex((args) => args[0] === "port");
-  assert.ok(!calls.slice(portCall).some((args) => args.join(" ") === `rm -f ${containerName}`));
+  assert.ok(calls.slice(portCall).some((args) => args.join(" ") === `rm -f ${containerName}`));
+  assert.ok(calls.slice(portCall).some((args) => args.join(" ") === `network rm ${containerName}-net`));
 });
 
 test("Docker endpoint resolution follows the port the running container is published on", async () => {
   let published = "127.0.0.1:49400\n";
+  let portCalls = 0;
   const dockerExec: DockerExec = async (args) => {
+    if (args[0] === "port") portCalls++;
     if (args[0] === "ps") return { code: 0, stdout: `${args[3]!.slice("name=".length)}\tnet\n`, stderr: "" };
     if (args[0] === "port") {
       return published
@@ -250,8 +253,11 @@ test("Docker endpoint resolution follows the port the running container is publi
   const provider = createDockerDeployProvider({ dockerExec });
 
   assert.deepEqual(await provider.resolveEndpoint!(running, running.versions[0]!), { host: "127.0.0.1", port: 49400 });
+  assert.deepEqual(await provider.resolveEndpoint!(running, running.versions[0]!), { host: "127.0.0.1", port: 49400 });
+  assert.equal(portCalls, 1, "a recently resolved endpoint is served from the check cache");
   published = "";
-  assert.equal(await provider.resolveEndpoint!(running, running.versions[0]!), null);
+  const restarted = createDockerDeployProvider({ dockerExec });
+  assert.equal(await restarted.resolveEndpoint!(running, running.versions[0]!), null);
 });
 
 test("a transient docker port failure does not report the deployment missing", async () => {

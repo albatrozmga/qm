@@ -59,7 +59,7 @@ export function createDockerDeployProvider(opts: DockerDeployProviderOptions = {
     (d: Deployment): Exec =>
     (script, timeoutSec) =>
       dexec(["exec", name(d), "sh", "-c", script], timeoutSec * 1000);
-  const checked = recentAppChecks();
+  const checked = recentAppChecks<DeployEndpoint>();
   const network = (d: Deployment) => `${name(d)}-net`;
   const dataVolume = (d: Deployment) => `agent-deploy-data-${d.id}`;
   const exists = async (d: Deployment): Promise<boolean> => (await dockerContainerNetworks(dexec, name(d))) !== null;
@@ -122,19 +122,19 @@ export function createDockerDeployProvider(opts: DockerDeployProviderOptions = {
           windowSec: APP_READY_WINDOW_SEC,
           report: appReporter(opts.onError, d, version.env),
         });
+        const port = await publishedPort(name(d));
+        if (port === null) {
+          const logs = await dexec(["logs", "--tail", "50", name(d)]);
+          throw new Error(
+            `deploy has no host port published for ${APP_PORT} (app files are read-only; write runtime state under $DATA_DIR=${DATA_DIR}): ${`${logs.stdout}${logs.stderr}`.trim()}`,
+          );
+        }
+        return { host: "127.0.0.1", port };
       } catch (e) {
         await dexec(["rm", "-f", name(d)]);
         await dexec(["network", "rm", net]);
         throw e;
       }
-      const port = await publishedPort(name(d));
-      if (port === null) {
-        const logs = await dexec(["logs", "--tail", "50", name(d)]);
-        throw new Error(
-          `deploy exited before serving on port ${APP_PORT} (app files are read-only; write runtime state under $DATA_DIR=${DATA_DIR}): ${`${logs.stdout}${logs.stderr}`.trim()}`,
-        );
-      }
-      return { host: "127.0.0.1", port };
     },
 
     async logs(d: Deployment, opts: { tailLines: number }): Promise<string | null> {
@@ -148,14 +148,16 @@ export function createDockerDeployProvider(opts: DockerDeployProviderOptions = {
     },
 
     async resolveEndpoint(d, version): Promise<DeployEndpoint | null> {
-      if (!checked.has(d.id)) {
-        if (!(await exists(d))) return null;
-        const report = appReporter(opts.onError, d, version.env);
-        if (await appGone(execIn(d), { appPort: APP_PORT, report })) return null;
-        checked.set(d.id, true);
-      }
+      const cached = checked.get(d.id);
+      if (cached) return cached;
+      if (!(await exists(d))) return null;
+      const report = appReporter(opts.onError, d, version.env);
+      if (await appGone(execIn(d), { appPort: APP_PORT, report })) return null;
       const port = await publishedPort(name(d));
-      return port === null ? null : { host: "127.0.0.1", port };
+      if (port === null) return null;
+      const endpoint = { host: "127.0.0.1", port };
+      checked.set(d.id, endpoint);
+      return endpoint;
     },
   };
 }

@@ -117,7 +117,8 @@ export function appBoot(inner: string, appPort: number, prep = "true"): string {
   ].join("; ");
 }
 
-export const recentAppChecks = (): LRUCache<string, true> => new LRUCache({ max: 500, ttl: APP_CHECK_CACHE_MS });
+export const recentAppChecks = <V extends object | true = true>(): LRUCache<string, V> =>
+  new LRUCache({ max: 500, ttl: APP_CHECK_CACHE_MS });
 
 export async function appLogs(exec: Exec, tailLines: number): Promise<string> {
   const lines = Math.max(1, Math.min(2000, Math.floor(tailLines)));
