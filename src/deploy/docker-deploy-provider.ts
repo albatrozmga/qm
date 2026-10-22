@@ -59,7 +59,8 @@ export function createDockerDeployProvider(opts: DockerDeployProviderOptions = {
     (d: Deployment): Exec =>
     (script, timeoutSec) =>
       dexec(["exec", name(d), "sh", "-c", script], timeoutSec * 1000);
-  const checked = recentAppChecks<DeployEndpoint>();
+  const checked = recentAppChecks();
+  const checkKey = (id: string, port: number | undefined) => `${id}:${port}`;
   const network = (d: Deployment) => `${name(d)}-net`;
   const dataVolume = (d: Deployment) => `agent-deploy-data-${d.id}`;
   const exists = async (d: Deployment): Promise<boolean> => (await dockerContainerNetworks(dexec, name(d))) !== null;
@@ -148,16 +149,14 @@ export function createDockerDeployProvider(opts: DockerDeployProviderOptions = {
     },
 
     async resolveEndpoint(d, version): Promise<DeployEndpoint | null> {
-      const cached = checked.get(d.id);
-      if (cached) return cached;
+      if (checked.has(checkKey(d.id, d.endpoint?.port))) return d.endpoint;
       if (!(await exists(d))) return null;
       const report = appReporter(opts.onError, d, version.env);
       if (await appGone(execIn(d), { appPort: APP_PORT, report })) return null;
       const port = await publishedPort(name(d));
       if (port === null) return null;
-      const endpoint = { host: "127.0.0.1", port };
-      checked.set(d.id, endpoint);
-      return endpoint;
+      checked.set(checkKey(d.id, port), true);
+      return { host: "127.0.0.1", port };
     },
   };
 }

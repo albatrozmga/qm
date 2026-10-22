@@ -253,11 +253,27 @@ test("Docker endpoint resolution follows the port the running container is publi
   const provider = createDockerDeployProvider({ dockerExec });
 
   assert.deepEqual(await provider.resolveEndpoint!(running, running.versions[0]!), { host: "127.0.0.1", port: 49400 });
-  assert.deepEqual(await provider.resolveEndpoint!(running, running.versions[0]!), { host: "127.0.0.1", port: 49400 });
-  assert.equal(portCalls, 1, "a recently resolved endpoint is served from the check cache");
+  await store.setEndpoint(deployment.id, { host: "127.0.0.1", port: 49400 });
+  const persisted = (await store.get(deployment.id))!;
+  assert.deepEqual(await provider.resolveEndpoint!(persisted, persisted.versions[0]!), {
+    host: "127.0.0.1",
+    port: 49400,
+  });
+  assert.equal(portCalls, 1, "the stored endpoint just checked is served from the check cache");
+
+  published = "127.0.0.1:49500\n";
+  await store.setEndpoint(deployment.id, { host: "127.0.0.1", port: 49500 });
+  const redeployed = (await store.get(deployment.id))!;
+  assert.deepEqual(await provider.resolveEndpoint!(redeployed, redeployed.versions[0]!), {
+    host: "127.0.0.1",
+    port: 49500,
+  });
+  assert.equal(portCalls, 2, "a re-applied deployment's new endpoint is checked, not served the old cached port");
+
   published = "";
-  const restarted = createDockerDeployProvider({ dockerExec });
-  assert.equal(await restarted.resolveEndpoint!(running, running.versions[0]!), null);
+  await store.setEndpoint(deployment.id, { host: "127.0.0.1", port: 49600 });
+  const unpublished = (await store.get(deployment.id))!;
+  assert.equal(await provider.resolveEndpoint!(unpublished, unpublished.versions[0]!), null);
 });
 
 test("a transient docker port failure does not report the deployment missing", async () => {
