@@ -1031,13 +1031,13 @@ export function createSessionMethods(
       if (!session) return "not_found";
       if (!deletableWebChat(session.type, session.threadRef)) return "forbidden";
       const remove = async () => {
-        await deps.sessions.markSessionDeleted(sessionId, Date.now());
         if (deps.signals)
           await stopSessionTree(
             { sessions: deps.sessions, runs: deps.runs, signals: deps.signals },
             session,
             "because the chat was deleted",
           );
+        await deps.sessions.markSessionDeleted(sessionId, Date.now());
       };
       await (deps.advisoryLock ? deps.advisoryLock.withLock("session-tree-admission", remove) : remove());
       return "ok";

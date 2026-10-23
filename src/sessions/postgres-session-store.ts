@@ -137,6 +137,7 @@ export function rowToSession(r: Record<string, unknown>): Session {
       : {}),
     ...(r.parent_session_id != null ? { parentSessionId: r.parent_session_id as string } : {}),
     ...(r.spawn_meta != null ? { spawnMeta: JSON.parse(r.spawn_meta as string) as Session["spawnMeta"] } : {}),
+    ...(r.deleted_at != null ? { deletedAt: Number(r.deleted_at) } : {}),
   };
 }
 
@@ -1073,8 +1074,11 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
       },
       {
         id: "sessions/store/albatroz-0002-deleted-trees",
-        expectedChecksum: "50b856d538f1a7043fb0abc2bfbd7d034e5e506c78b0965f740d1f7723069a2d",
+        expectedChecksum: "2b0aba663e07dc05ad8daa7062dffac3ab4750dece2dc5b75a74c9b2cbfb73b8",
         statements: [
+          `UPDATE sessions SET deleted_at = 0
+            WHERE deleted_at IS NOT NULL AND thread_ref LIKE 'web:%'
+              AND (thread_ref LIKE '%:inbox' OR thread_ref LIKE '%:app-edit:%')`,
           `WITH RECURSIVE tree AS (
              SELECT id, deleted_at FROM sessions WHERE deleted_at IS NOT NULL
              UNION

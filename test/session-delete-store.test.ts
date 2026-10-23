@@ -93,3 +93,34 @@ test(
     assert.ok((await store.listDeletedBefore(2_000)).includes(child.id));
   },
 );
+
+test(
+  "postgres: a migração manda para purga imediata o inbox e a edição de app já apagados",
+  { skip: databaseUrl ? false : "set DATABASE_URL to run the Postgres variant" },
+  async () => {
+    const store = createPostgresSessionStore(databaseUrl!);
+    const owner = `alice-${randomUUID()}`;
+    const scope = scopeId("personal", owner);
+    const inbox = await store.getOrCreateByThread(`web:${owner}:inbox`, "dm", scope);
+    const appEdit = await store.getOrCreateByThread(`web:${owner}:app-edit:painel`, "dm", scope);
+    const ordinary = await store.getOrCreateByThread(`web:${owner}:${randomUUID()}`, "dm", scope);
+    const pg = (await import("pg")).default;
+    const pool = new pg.Pool({ connectionString: databaseUrl! });
+    try {
+      await pool.query("UPDATE sessions SET deleted_at = 5000 WHERE id = ANY($1::text[])", [
+        [inbox.id, appEdit.id, ordinary.id],
+      ]);
+      const backfill = registeredPgMigrations(databaseUrl!).filter((m) =>
+        m.id.startsWith("sessions/store/albatroz-0002"),
+      );
+      await pool.query("DELETE FROM qm_schema_migrations WHERE id = $1", [backfill[0]!.id]);
+      await applyPgMigrations(pool, backfill);
+    } finally {
+      await pool.end();
+    }
+
+    const dueNow = new Set(await store.listDeletedBefore(1));
+    assert.ok(dueNow.has(inbox.id) && dueNow.has(appEdit.id), "inbox e edição de app saem na próxima varredura");
+    assert.ok(!dueNow.has(ordinary.id), "um chat comum segue o prazo de 30 dias");
+  },
+);

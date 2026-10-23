@@ -148,6 +148,17 @@ for (const explicit of [
   });
 }
 
+test("a turn whose conversation was deleted cannot open a subagent", async () => {
+  const r = await rig();
+  const syscalls = r.syscallsFor(r.room);
+  await r.sessions.markSessionDeleted(r.room.id, 1_000);
+
+  const out = await syscalls.open({ task: "keep working after the chat was deleted" });
+
+  assert.equal(out.ok, false);
+  assert.deepEqual(await r.sessions.childrenOf(r.room.id), []);
+});
+
 test("empty writes name the action and field the caller used", async () => {
   const r = await rig();
   const opened = await r.syscallsFor(r.room).open({ task: "work" });
