@@ -44,8 +44,6 @@ import {
   sessionOrigin,
   userMessagePreview,
   isWebThread,
-  DELETED_THREAD_PREFIX,
-  deletedThreadRef,
 } from "./session-store.ts";
 import { entryFromItem, itemFromEntry } from "./items.ts";
 import { SECURITY_SCREEN_STEP, screenPayloadFromEnvelope } from "../security/security-posture.ts";
@@ -194,7 +192,8 @@ export function createMemorySessionStore(opts: StoreOptions = {}): SessionStore 
     },
 
     async acquireLease(sessionId, holder): Promise<LeaseAttempt> {
-      if (!sessions.has(sessionId)) return { lease: null };
+      const session = sessions.get(sessionId);
+      if (!session || session.deletedAt !== undefined) return { lease: null };
       const held = leases.get(sessionId);
       if (held && now() < held.expiresAt)
         return {
@@ -260,12 +259,7 @@ export function createMemorySessionStore(opts: StoreOptions = {}): SessionStore 
       for (const id of tree) for (const s of sessions.values()) if (s.parentSessionId === id) tree.add(s.id);
       for (const id of tree) {
         const s = sessions.get(id);
-        if (!s) continue;
-        s.deletedAt ??= at;
-        if (s.threadRef.startsWith(DELETED_THREAD_PREFIX)) continue;
-        byThread.delete(s.threadRef);
-        s.threadRef = deletedThreadRef(s);
-        byThread.set(s.threadRef, s.id);
+        if (s) s.deletedAt ??= at;
       }
     },
 

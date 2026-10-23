@@ -419,7 +419,10 @@ async function deleteSessionRoute(ctx: ApiCtx): Promise<void> {
   const outcome = await app.deleteSessionForViewer(id, principalId);
   if (outcome === "not_found") return sendJson(res, 404, { error: "not_found" });
   if (outcome === "forbidden") {
-    return sendJson(res, 403, { error: "forbidden", message: "only personal chats can be deleted" });
+    return sendJson(res, 403, {
+      error: "forbidden",
+      message: "only personal web chats can be deleted, except the inbox and app-edit chats",
+    });
   }
   audit(deps, { principalId, action: "session.delete", resource: id, scopeLabel: principalId });
   return sendJson(res, 200, { ok: true });

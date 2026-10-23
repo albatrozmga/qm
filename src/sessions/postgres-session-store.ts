@@ -51,7 +51,6 @@ import {
   isWebThread,
   isOverheardEntry,
   DuplicateCallError,
-  DELETED_THREAD_PREFIX,
 } from "./session-store.ts";
 import {
   entryFromItem,
@@ -1074,6 +1073,7 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
       },
       {
         id: "sessions/store/albatroz-0002-deleted-trees",
+        expectedChecksum: "50b856d538f1a7043fb0abc2bfbd7d034e5e506c78b0965f740d1f7723069a2d",
         statements: [
           `WITH RECURSIVE tree AS (
              SELECT id, deleted_at FROM sessions WHERE deleted_at IS NOT NULL
@@ -1083,8 +1083,6 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
            UPDATE sessions s SET deleted_at = t.deleted_at
              FROM (SELECT id, MIN(deleted_at) AS deleted_at FROM tree GROUP BY id) t
             WHERE s.id = t.id AND s.deleted_at IS NULL`,
-          `UPDATE sessions SET thread_ref = '${DELETED_THREAD_PREFIX}' || id || ':' || thread_ref
-            WHERE deleted_at IS NOT NULL AND NOT starts_with(thread_ref, '${DELETED_THREAD_PREFIX}')`,
         ],
       },
     ],
@@ -1297,6 +1295,8 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
       const t = now();
       return withPgTransaction(await pool(), async (client) => {
         await lockSession(client, sessionId);
+        const live = await client.query("SELECT 1 FROM sessions WHERE id = $1 AND deleted_at IS NULL", [sessionId]);
+        if (!live.rows[0]) return { lease: null };
         for (;;) {
           const granted = await client.query(
             `INSERT INTO session_leases(session_id, token, expires_at, holder, acquired_at)
@@ -1667,11 +1667,8 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
            UNION
            SELECT s.id FROM sessions s JOIN tree t ON s.parent_session_id = t.id
          )
-         UPDATE sessions
-            SET deleted_at = COALESCE(deleted_at, $2),
-                thread_ref = CASE WHEN starts_with(thread_ref, $3) THEN thread_ref ELSE $3 || id || ':' || thread_ref END
-          WHERE id IN (SELECT id FROM tree)`,
-        [sessionId, at, DELETED_THREAD_PREFIX],
+         UPDATE sessions SET deleted_at = $2 WHERE id IN (SELECT id FROM tree) AND deleted_at IS NULL`,
+        [sessionId, at],
       );
     },
 

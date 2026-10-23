@@ -2,7 +2,7 @@ import { composeSoul } from "../resolution/resolution-service.ts";
 import { createCurrentScopeMembers } from "../resolution/scope-membership.ts";
 import { notifyDeploymentShared } from "../deploy/share-notice.ts";
 import { deploymentShareScope } from "../deploy/email-access.ts";
-import { workingSessionThreadRefs } from "../sessions/session-syscalls.ts";
+import { stopSessionTree, workingSessionThreadRefs } from "../sessions/session-syscalls.ts";
 import type { ParticipantPageQuery } from "../sessions/session-store.ts";
 import type { PendingApprovalRecord, Session } from "../types.ts";
 import { orgId as orgIdOf } from "../config.ts";
@@ -61,6 +61,9 @@ function coversTailWindow(entries: readonly { type: string }[], tailTurns: numbe
 const GOAL_CANCEL_LEASE_WAIT_MS = 30_000;
 
 const MAX_LISTED_CHILDREN = 500;
+
+const deletableWebChat = (type: Session["type"], threadRef: string): boolean =>
+  type === "dm" && threadRef.startsWith("web:") && !threadRef.endsWith(":inbox") && !threadRef.includes(":app-edit:");
 
 export function createSessionMethods(
   deps: AppDeps,
@@ -1026,8 +1029,17 @@ export function createSessionMethods(
     async deleteSessionForViewer(sessionId, principalId) {
       const session = (await sessionsForViewer(principalId)).find((s) => s.id === sessionId);
       if (!session) return "not_found";
-      if (session.type !== "dm" || !session.threadRef.startsWith("web:")) return "forbidden";
-      await deps.sessions.markSessionDeleted(sessionId, Date.now());
+      if (!deletableWebChat(session.type, session.threadRef)) return "forbidden";
+      const remove = async () => {
+        await deps.sessions.markSessionDeleted(sessionId, Date.now());
+        if (deps.signals)
+          await stopSessionTree(
+            { sessions: deps.sessions, runs: deps.runs, signals: deps.signals },
+            session,
+            "because the chat was deleted",
+          );
+      };
+      await (deps.advisoryLock ? deps.advisoryLock.withLock("session-tree-admission", remove) : remove());
       return "ok";
     },
 

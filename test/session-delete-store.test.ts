@@ -52,35 +52,19 @@ for (const backend of backends) {
     for (const s of [root, child, grandchild]) assert.ok(purge.has(s.id), "a árvore inteira vai para a purga");
   });
 
-  test(
-    `${backend.name}: o endereço de um chat apagado volta a abrir uma conversa nova`,
-    { skip: backend.skip },
-    async () => {
-      const store = backend.make();
-      const owner = `alice-${randomUUID()}`;
-      const scope = scopeId("personal", owner);
-      const threadRef = `web:${owner}:inbox`;
-      const deleted = await store.getOrCreateByThread(threadRef, "dm", scope);
-      await store.addParticipant(deleted.id, owner);
+  test(`${backend.name}: um chat apagado não aceita mais turnos`, { skip: backend.skip }, async () => {
+    const store = backend.make();
+    const owner = `alice-${randomUUID()}`;
+    const session = await store.getOrCreateByThread(`web:${owner}:t`, "dm", scopeId("personal", owner));
 
-      await store.markSessionDeleted(deleted.id, 1_000);
-      const fresh = await store.getOrCreateByThread(threadRef, "dm", scope);
-      await store.addParticipant(fresh.id, owner);
+    await store.markSessionDeleted(session.id, 1_000);
 
-      assert.notEqual(fresh.id, deleted.id);
-      assert.equal((await store.getByThread(threadRef))?.id, fresh.id);
-      assert.deepEqual(
-        (await store.listByParticipant(owner)).map((s) => s.id),
-        [fresh.id],
-      );
-      assert.ok(await store.get(deleted.id), "o apagado segue guardado até a purga");
-      assert.ok((await store.listDeletedBefore(2_000)).includes(deleted.id));
-    },
-  );
+    assert.deepEqual(await store.acquireLease(session.id), { lease: null });
+  });
 }
 
 test(
-  "postgres: a migração estende a exclusão já feita aos subagentes e libera o endereço",
+  "postgres: a migração estende a exclusão já feita aos subagentes",
   { skip: databaseUrl ? false : "set DATABASE_URL to run the Postgres variant" },
   async () => {
     const store = createPostgresSessionStore(databaseUrl!);
@@ -107,7 +91,5 @@ test(
 
     assert.equal(await store.getForParticipant(child.id, owner), null);
     assert.ok((await store.listDeletedBefore(2_000)).includes(child.id));
-    const fresh = await store.getOrCreateByThread(threadRef, "dm", scope);
-    assert.notEqual(fresh.id, root.id);
   },
 );

@@ -1226,7 +1226,7 @@ function sessionMenuPopover(s: CoreSession): TemplateResult {
         ${archived ? icon(ArchiveRestore, 15) : icon(Archive, 15)}<span>${archived ? "Unarchive" : "Archive"}</span>
       </button>
       ${
-        s.type === "dm" && s.threadRef.startsWith("web:")
+        deletableWebChat(s)
           ? html`<button
               class="session-menu-option danger"
               type="button"
@@ -1620,6 +1620,15 @@ function markOpenSessionsRead(): void {
 }
 
 let pendingDeleteId: string | null = null;
+
+function deletableWebChat(s: CoreSession): boolean {
+  return (
+    s.type === "dm" &&
+    s.threadRef.startsWith("web:") &&
+    !s.threadRef.endsWith(":inbox") &&
+    !s.threadRef.includes(":app-edit:")
+  );
+}
 
 async function deleteSessionAction(s: CoreSession): Promise<void> {
   if (pendingDeleteId !== s.id) {
