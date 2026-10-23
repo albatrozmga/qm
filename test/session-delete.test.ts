@@ -57,3 +57,18 @@ test("sessão de canal/grupo é recusada", async () => {
   });
   assert.equal(await app.deleteSessionForViewer(outcome.sessionId!, "alice"), "forbidden");
 });
+
+test("apagar o chat do inbox deixa a próxima mensagem abrir uma conversa nova e visível", async () => {
+  const { app } = freshApp();
+  const first = await app.turn(dm("primeira conversa do inbox", "web:alice:inbox", "alice"));
+  assert.equal(await app.deleteSessionForViewer(first.sessionId!, "alice"), "ok");
+
+  const next = await app.turn(dm("de novo pelo inbox", "web:alice:inbox", "alice"));
+
+  assert.notEqual(next.sessionId, first.sessionId, "não reabre a sessão apagada");
+  assert.ok(await app.getSessionForViewer(next.sessionId!, "alice"), "a conversa nova abre");
+  assert.ok(
+    (await app.listSessions("alice")).some((s) => s.id === next.sessionId),
+    "e aparece na lista",
+  );
+});

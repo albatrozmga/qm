@@ -51,6 +51,7 @@ import {
   isWebThread,
   isOverheardEntry,
   DuplicateCallError,
+  DELETED_THREAD_PREFIX,
 } from "./session-store.ts";
 import {
   entryFromItem,
@@ -1071,6 +1072,21 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
         expectedChecksum: "b05c992e55486906fd2a06ea157f7f8808b4c727c8c77ef6d09f4ceb78ad8ae7",
         statements: [`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS deleted_at BIGINT`],
       },
+      {
+        id: "sessions/store/albatroz-0002-deleted-trees",
+        statements: [
+          `WITH RECURSIVE tree AS (
+             SELECT id, deleted_at FROM sessions WHERE deleted_at IS NOT NULL
+             UNION
+             SELECT s.id, t.deleted_at FROM sessions s JOIN tree t ON s.parent_session_id = t.id
+           )
+           UPDATE sessions s SET deleted_at = t.deleted_at
+             FROM (SELECT id, MIN(deleted_at) AS deleted_at FROM tree GROUP BY id) t
+            WHERE s.id = t.id AND s.deleted_at IS NULL`,
+          `UPDATE sessions SET thread_ref = '${DELETED_THREAD_PREFIX}' || id || ':' || thread_ref
+            WHERE deleted_at IS NOT NULL AND NOT starts_with(thread_ref, '${DELETED_THREAD_PREFIX}')`,
+        ],
+      },
     ],
     [
       {
@@ -1645,7 +1661,18 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
     },
 
     async markSessionDeleted(sessionId, at): Promise<void> {
-      await q("UPDATE sessions SET deleted_at = $2 WHERE id = $1", [sessionId, at]);
+      await q(
+        `WITH RECURSIVE tree AS (
+           SELECT id FROM sessions WHERE id = $1
+           UNION
+           SELECT s.id FROM sessions s JOIN tree t ON s.parent_session_id = t.id
+         )
+         UPDATE sessions
+            SET deleted_at = COALESCE(deleted_at, $2),
+                thread_ref = CASE WHEN starts_with(thread_ref, $3) THEN thread_ref ELSE $3 || id || ':' || thread_ref END
+          WHERE id IN (SELECT id FROM tree)`,
+        [sessionId, at, DELETED_THREAD_PREFIX],
+      );
     },
 
     async listDeletedBefore(cutoff): Promise<string[]> {

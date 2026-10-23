@@ -44,6 +44,8 @@ import {
   sessionOrigin,
   userMessagePreview,
   isWebThread,
+  DELETED_THREAD_PREFIX,
+  deletedThreadRef,
 } from "./session-store.ts";
 import { entryFromItem, itemFromEntry } from "./items.ts";
 import { SECURITY_SCREEN_STEP, screenPayloadFromEnvelope } from "../security/security-posture.ts";
@@ -254,8 +256,17 @@ export function createMemorySessionStore(opts: StoreOptions = {}): SessionStore 
     },
 
     async markSessionDeleted(sessionId, at) {
-      const s = sessions.get(sessionId);
-      if (s) s.deletedAt = at;
+      const tree = new Set([sessionId]);
+      for (const id of tree) for (const s of sessions.values()) if (s.parentSessionId === id) tree.add(s.id);
+      for (const id of tree) {
+        const s = sessions.get(id);
+        if (!s) continue;
+        s.deletedAt ??= at;
+        if (s.threadRef.startsWith(DELETED_THREAD_PREFIX)) continue;
+        byThread.delete(s.threadRef);
+        s.threadRef = deletedThreadRef(s);
+        byThread.set(s.threadRef, s.id);
+      }
     },
 
     async listDeletedBefore(cutoff) {

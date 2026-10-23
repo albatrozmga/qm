@@ -5,6 +5,11 @@ import type { GoalRecord } from "../harness/goal.ts";
 
 export const LLM_CAPTURE_RETENTION_MS = 30 * 24 * 60 * 60_000;
 
+export const DELETED_THREAD_PREFIX = "deleted:";
+
+export const deletedThreadRef = (session: Pick<Session, "id" | "threadRef">): string =>
+  `${DELETED_THREAD_PREFIX}${session.id}:${session.threadRef}`;
+
 export function promptEnvelopeBody(envelope: unknown): { hash: string; body: string } | null {
   if (envelope == null) return null;
   let body: string;
