@@ -650,8 +650,8 @@ export function createSessionSyscalls(deps: SessionSyscallDeps): SessionSyscalls
               }`;
               const fingerprint = hashId([canonicalJson(input)], 40);
               const existing = await deps.sessions.getByThread(threadRef);
-              const parent = (await deps.sessions.get(binding.session.id))!;
-              if (parent.deletedAt !== undefined)
+              const parent = await deps.sessions.get(binding.session.id);
+              if (!parent || parent.deletedAt !== undefined)
                 return { ok: false, message: "this conversation was deleted, so it cannot open subagents." };
               const root = await sessionTreeRoot(deps.sessions, existing ?? parent);
               const live = await sessionTreeRunCount(deps.sessions, deps.runs, root);

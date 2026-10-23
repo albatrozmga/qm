@@ -1,6 +1,5 @@
 import type { SessionStore } from "./session-store.ts";
 
-// ponytail: prazo fixo; vira env/config se algum dia houver demanda real.
 export const PURGE_AFTER_MS = 30 * 24 * 3600 * 1000;
 const SWEEP_INTERVAL_MS = 24 * 3600 * 1000;
 

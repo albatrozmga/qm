@@ -21,11 +21,9 @@ export interface BudgetOpts {
   limitUsd?: number;
   orgLimitUsd?: number;
   windowMs?: number;
-  /** Per-person caps that replace `limitUsd`, keyed by email or Slack ID (BUDGET_USD_OVERRIDES). */
   limitOverrides?: Record<string, number>;
 }
 
-/** Resolves a principal's cap: an override for any of its linked ids (email ⇄ Slack), else the default. */
 export function budgetLimitFor(opts: BudgetOpts): (principalId: string) => number {
   const fallback = opts.limitUsd ?? Infinity;
   const overrides = new Map(Object.entries(opts.limitOverrides ?? {}).map(([k, v]) => [foldPrincipalId(k), v]));
