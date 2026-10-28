@@ -173,6 +173,9 @@ test("a column decides its decimal separator from its unambiguous cells", () => 
   assert.equal(columnDecimal(["R$ 1.234.567,89", "R$ 12,00"]), ",");
   assert.equal(columnDecimal(["$1,500", "$20.50"]), ".");
   assert.equal(columnDecimal(["0.125", "0.5"]), ".");
+  assert.equal(columnDecimal(["0,125"]), ",");
+  assert.equal(columnDecimal(["R$ 1.000", "R$ 2.000", "R$ 500"]), ",");
+  assert.equal(columnDecimal(["$1,000", "$2,000", "$500"]), ".");
   assert.equal(cellNumber("R$ 1.234.567,89", ","), 1234567.89);
   assert.equal(cellNumber("$1,500", "."), 1500);
   assert.equal(cellNumber("42,5%", ","), 42.5);
@@ -221,6 +224,7 @@ test("axis ticks stay bounded for near-equal, huge and opposite extreme values",
     [-1e308, 1e308],
     [5, 5],
     [0, 0],
+    [1.7e308, 1.7e308],
   ] as const) {
     const ticks = niceTicks(min, max);
     assert.ok(ticks.length >= 2 && ticks.length <= 51, `${min}..${max} gave ${ticks.length} ticks`);

@@ -20,7 +20,7 @@ function addDocumentStyles(): void {
 
 type Decimal = "," | ".";
 
-const PLACEHOLDER = /^(?:[-–—]|n\/?a|n\/d|s\/d)$/i;
+const PLACEHOLDER = /^(?:[-–—]+|\?|n\.?\/?a\.?|n\/d|s\/d)$/i;
 
 export function emptyCell(raw: string): boolean {
   const value = raw.trim();
@@ -49,21 +49,28 @@ export function cellNumber(raw: string, decimal: Decimal): number | null {
 }
 
 export function columnDecimal(values: string[]): Decimal {
-  for (const raw of values) {
-    const value = numericCore(raw);
+  const cores = values.map(numericCore).filter(Boolean);
+  for (const value of cores) {
+    const lead = /^[-−+(]?0([.,])\d/.exec(value);
+    if (lead) return lead[1] as Decimal;
     const dot = value.lastIndexOf(".");
     const comma = value.lastIndexOf(",");
     if (dot >= 0 && comma >= 0) return dot > comma ? "." : ",";
     if (/,\d{1,2}$|,\d{4,}$/.test(value) || /\.\d{3}\./.test(value)) return ",";
     if (/\.\d{1,2}$|\.\d{4,}$/.test(value) || /,\d{3},/.test(value)) return ".";
   }
+  const grouped = cores
+    .filter((value) => /[.,]/.test(value))
+    .map((value) => /^[-−+(]?\d{1,3}([.,])\d{3}\)?$/.exec(value)?.[1]);
+  if (grouped.length && grouped.every((separator) => separator === grouped[0]) && grouped[0])
+    return grouped[0] === "." ? "," : ".";
   return (1.5).toLocaleString().includes(",") ? "," : ".";
 }
 
 export function tableSignature(table: HTMLTableElement): string {
   let hash = 0x811c9dc5;
   for (const character of table.outerHTML) hash = Math.imul(hash ^ character.charCodeAt(0), 0x01000193);
-  return (hash >>> 0).toString(36);
+  return `${table.outerHTML.length}-${(hash >>> 0).toString(36)}`;
 }
 
 function cells(row: HTMLTableRowElement): string[] {

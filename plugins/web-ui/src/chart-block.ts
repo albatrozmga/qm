@@ -43,8 +43,8 @@ export function parseChart(source: string): ChartSpec {
       throw new Error(`Series ${index + 1} needs exactly one value per "x" label.`);
     const values = item.values.map((value) => {
       if (value === null) return null;
-      if (typeof value !== "number" || !Number.isFinite(value))
-        throw new Error(`Series ${index + 1} has a value that is not a number.`);
+      if (typeof value !== "number" || !Number.isFinite(value) || Math.abs(value) > 1e300)
+        throw new Error(`Series ${index + 1} has a value that is not a usable number.`);
       return value;
     });
     return { name: text(item.name ?? `Series ${index + 1}`, 60), values };

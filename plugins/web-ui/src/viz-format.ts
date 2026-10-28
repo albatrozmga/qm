@@ -52,8 +52,8 @@ export function niceTicks(min: number, max: number, count = 5): number[] {
   const scale = Math.max(Math.abs(min), Math.abs(max));
   if (max - min <= scale * 1e-9) {
     const pad = scale ? scale * 0.1 : 1;
-    min -= pad;
-    max += pad;
+    min = Math.max(min - pad, -Number.MAX_VALUE);
+    max = Math.min(max + pad, Number.MAX_VALUE);
   }
   const rough = (max - min) / count;
   const magnitude = 10 ** Math.floor(Math.log10(rough));
