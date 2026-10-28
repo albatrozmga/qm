@@ -53,6 +53,8 @@ export function parseChart(source: string): ChartSpec {
     throw new Error("A pie or donut chart takes exactly one series.");
   if ((type === "pie" || type === "donut") && series[0]!.values.some((value) => (value ?? 0) < 0))
     throw new Error("A pie or donut chart cannot show negative values.");
+  if ((type === "pie" || type === "donut") && x.length > MAX_SERIES)
+    throw new Error(`A pie or donut chart shows at most ${MAX_SERIES} slices; fold the smallest into "Other".`);
   return {
     type,
     x,
@@ -416,15 +418,17 @@ export class ChartBlock extends LitElement {
     } else {
       const totals = Array.from({ length: n }, () => 0);
       spec.series.forEach((series, s) => {
-        const points: Array<[number, number] | null> = series.values.map((value, i) => {
+        const baseline = y(Math.max(lo, 0));
+        const points: Array<[number, number, number] | null> = series.values.map((value, i) => {
           if (value === null) return null;
           if (spec.type === "area" && spec.stacked) {
+            const below = totals[i]!;
             totals[i]! += value;
-            return [cx(i), y(totals[i]!)];
+            return [cx(i), y(totals[i]!), y(below)];
           }
-          return [cx(i), y(value)];
+          return [cx(i), y(value), baseline];
         });
-        const segments: Array<Array<[number, number]>> = [[]];
+        const segments: Array<Array<[number, number, number]>> = [[]];
         for (const point of points) {
           if (point) segments.at(-1)!.push(point);
           else if (segments.at(-1)!.length) segments.push([]);
@@ -433,7 +437,10 @@ export class ChartBlock extends LitElement {
           const line = segment.map(([px, py], j) => `${j ? "L" : "M"}${px},${py}`).join("");
           if (spec.type === "area")
             marks.push(
-              svg`<path d=${`${line}L${segment.at(-1)![0]},${y(Math.max(lo, 0))}L${segment[0]![0]},${y(Math.max(lo, 0))}Z`} fill="var(--s${s + 1})" fill-opacity="0.16"></path>`,
+              svg`<path d=${`${line}${[...segment]
+                .reverse()
+                .map(([px, , base]) => `L${px},${base}`)
+                .join("")}Z`} fill="var(--s${s + 1})" fill-opacity="0.16"></path>`,
             );
           marks.push(
             svg`<path d=${line} fill="none" stroke="var(--s${s + 1})" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></path>`,
@@ -490,6 +497,7 @@ export class ChartBlock extends LitElement {
       let positive = 0;
       let negative = 0;
       const lastPositive = spec.series.findLastIndex((series) => (series.values[i] ?? 0) > 0);
+      const lastNegative = spec.series.findLastIndex((series) => (series.values[i] ?? 0) < 0);
       spec.series.forEach((series, s) => {
         const value = series.values[i];
         if (value === null) return;
@@ -503,10 +511,10 @@ export class ChartBlock extends LitElement {
           to = from + value;
           if (value >= 0) positive = to;
           else negative = to;
-          round = value < 0 || s === lastPositive;
+          round = s === (value >= 0 ? lastPositive : lastNegative);
         }
         marks.push(
-          svg`<path class="mark ${this.hover === i ? "on" : ""}" d=${hbarPath(yy, x(from) + (spec.stacked && from !== 0 ? 1 : 0), x(to), barHeight, round)} fill="var(--s${s + 1})"></path>`,
+          svg`<path class="mark ${this.hover === i ? "on" : ""}" d=${hbarPath(yy, x(from) + (spec.stacked && from !== 0 ? Math.sign(value) : 0), x(to), barHeight, round)} fill="var(--s${s + 1})"></path>`,
         );
       });
     });
@@ -526,7 +534,9 @@ export class ChartBlock extends LitElement {
 
   private pie(spec: ChartSpec, format: Formatter): TemplateResult {
     const values = spec.series[0]!.values.map((value) => value ?? 0);
-    const total = values.reduce((sum, value) => sum + value, 0) || 1;
+    if (!values.some((value) => value > 0))
+      return html`<p class="status" role="status">Nothing to draw: every value is zero.</p>`;
+    const total = values.reduce((sum, value) => sum + value, 0);
     const c = PIE_SIZE / 2;
     const outer = c - 4;
     const inner = spec.type === "donut" ? outer * 0.6 : 0;

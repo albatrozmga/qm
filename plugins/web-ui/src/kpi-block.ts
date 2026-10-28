@@ -133,6 +133,14 @@ export class KpiBlock extends LitElement {
       font-weight: 400;
       color: var(--ink-muted);
     }
+    .sr-only {
+      position: absolute;
+      width: 1px;
+      height: 1px;
+      overflow: hidden;
+      clip-path: inset(50%);
+      white-space: nowrap;
+    }
     pre {
       max-height: 400px;
       overflow: auto;
@@ -179,8 +187,8 @@ export class KpiBlock extends LitElement {
       if (direction !== "flat") tone = direction === (item.goodWhen ?? "up") ? "good" : "bad";
       const arrow = ARROWS[direction];
       const meaning = MEANINGS[tone];
-      delta = html`<span class="delta ${tone}" aria-label="${deltaText(item, item.delta)}, ${meaning}">
-        <span aria-hidden="true">${arrow}</span>${deltaText(item, item.delta)}
+      delta = html`<span class="delta ${tone}">
+        <span aria-hidden="true">${arrow}</span>${deltaText(item, item.delta)}<span class="sr-only">, ${meaning}</span>
         ${item.deltaLabel ? html`<span class="note">${item.deltaLabel}</span>` : nothing}
       </span>`;
     }

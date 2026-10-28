@@ -2,7 +2,7 @@ import "./marked-dedupe.ts";
 import "./mermaid-block.ts";
 import "./chart-block.ts";
 import "./kpi-block.ts";
-import "./table-block.ts";
+import { tableSignature } from "./table-block.ts";
 import { MarkdownBlock } from "@mariozechner/mini-lit/dist/MarkdownBlock.js";
 import "@mariozechner/mini-lit/dist/CodeBlock.js";
 import { ReactiveElement, render, type PropertyValues } from "lit";
@@ -179,8 +179,8 @@ export class StableMarkdown extends ReactiveElement {
       }
       if (!this.isStreaming)
         for (const table of target.querySelectorAll("table")) {
-          if (table.parentElement?.localName === "qm-table") continue;
           const wrapper = document.createElement("qm-table");
+          wrapper.dataset.source = tableSignature(table);
           table.replaceWith(wrapper);
           wrapper.append(table);
         }
@@ -189,6 +189,11 @@ export class StableMarkdown extends ReactiveElement {
       morphdom(this, target, {
         childrenOnly: true,
         onBeforeElUpdated: (current, next) => {
+          if (
+            current.localName === "qm-table" &&
+            current.getAttribute("data-source") === next.getAttribute("data-source")
+          )
+            return false;
           if (SOURCE_ELEMENTS.includes(current.localName)) {
             for (const name of ["code", "language", "pending"]) {
               const value = next.getAttribute(name);

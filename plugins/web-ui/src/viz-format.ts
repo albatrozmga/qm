@@ -34,7 +34,8 @@ export function formatter(spec: FormatSpec): Formatter {
     return { full: (v) => full.format(v), axis: (v) => axis.format(v) };
   }
   if (spec.format === "currency") {
-    const currency = /^[A-Z]{3}$/.test(spec.currency ?? "") ? spec.currency! : "BRL";
+    const currency = spec.currency?.toUpperCase() ?? "";
+    if (!/^[A-Z]{3}$/.test(currency)) return formatter({ ...spec, format: "number" });
     const full = safeFormat(tag, { style: "currency", currency, ...fixed });
     const axis = safeFormat(tag, { style: "currency", currency, notation: "compact", maximumFractionDigits: 1 });
     return { full: (v) => full.format(v), axis: (v) => axis.format(v) };
@@ -44,15 +45,24 @@ export function formatter(spec: FormatSpec): Formatter {
   return { full: (v) => full.format(v), axis: (v) => axis.format(v) };
 }
 
+const MAX_TICKS = 50;
+
 export function niceTicks(min: number, max: number, count = 5): number[] {
   if (!Number.isFinite(min) || !Number.isFinite(max)) return [0, 1];
-  if (min === max) max = min === 0 ? 1 : min + Math.abs(min);
+  const scale = Math.max(Math.abs(min), Math.abs(max));
+  if (max - min <= scale * 1e-9) {
+    const pad = scale ? scale * 0.1 : 1;
+    min -= pad;
+    max += pad;
+  }
   const rough = (max - min) / count;
   const magnitude = 10 ** Math.floor(Math.log10(rough));
   const normalized = rough / magnitude;
   const step = ([1, 2, 5].find((candidate, index) => normalized < [1.5, 3, 7][index]!) ?? 10) * magnitude;
-  const ticks: number[] = [];
-  for (let tick = Math.floor(min / step) * step; tick <= Math.ceil(max / step) * step + step / 2; tick += step)
-    ticks.push(Number(tick.toPrecision(12)));
-  return ticks;
+  const first = Math.floor(min / step);
+  const intervals = Math.ceil(max / step) - first;
+  if (!(step > 0) || !Number.isFinite(step) || !Number.isFinite(intervals) || intervals < 1 || intervals > MAX_TICKS)
+    return [min, max];
+  const ticks = Array.from({ length: intervals + 1 }, (_, k) => Number(((first + k) * step).toPrecision(12)));
+  return ticks.every(Number.isFinite) ? ticks : [min, max];
 }

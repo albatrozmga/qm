@@ -18,28 +18,52 @@ function addDocumentStyles(): void {
   document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
 }
 
-export function cellNumber(raw: string): number | null {
-  let value = raw
+type Decimal = "," | ".";
+
+const PLACEHOLDER = /^(?:[-–—]|n\/?a|n\/d|s\/d)$/i;
+
+export function emptyCell(raw: string): boolean {
+  const value = raw.trim();
+  return !value || PLACEHOLDER.test(value);
+}
+
+function numericCore(raw: string): string {
+  return raw
     .replace(/\s/g, "")
     .replace(/^[^\d+\-−(]*/, "")
     .replace(/[^\d.,)]*$/, "");
+}
+
+export function cellNumber(raw: string, decimal: Decimal): number | null {
+  let value = numericCore(raw);
   if (!value) return null;
   const negative = /^[-−]/.test(value) || /^\(.*\)$/.test(value);
-  value = value.replace(/^[-−+(]/, "").replace(/\)$/, "");
-  const lastDot = value.lastIndexOf(".");
-  const lastComma = value.lastIndexOf(",");
-  if (lastDot >= 0 && lastComma >= 0) {
-    const decimal = lastDot > lastComma ? "." : ",";
-    value = value.replaceAll(decimal === "." ? "," : ".", "").replace(decimal, ".");
-  } else if (lastComma >= 0 || lastDot >= 0) {
-    const separator = lastComma >= 0 ? "," : ".";
-    const parts = value.split(separator);
-    const thousands = parts.length > 2 || (parts.length === 2 && parts[1]!.length === 3 && separator === ".");
-    value = thousands ? parts.join("") : parts.join(".");
-  }
+  value = value
+    .replace(/^[-−+(]/, "")
+    .replace(/\)$/, "")
+    .replaceAll(decimal === "," ? "." : ",", "");
+  if (decimal === ",") value = value.replace(",", ".");
   if (!/^\d+(\.\d+)?$/.test(value)) return null;
   const number = Number(value);
   return negative ? -number : number;
+}
+
+export function columnDecimal(values: string[]): Decimal {
+  for (const raw of values) {
+    const value = numericCore(raw);
+    const dot = value.lastIndexOf(".");
+    const comma = value.lastIndexOf(",");
+    if (dot >= 0 && comma >= 0) return dot > comma ? "." : ",";
+    if (/,\d{1,2}$|,\d{4,}$/.test(value) || /\.\d{3}\./.test(value)) return ",";
+    if (/\.\d{1,2}$|\.\d{4,}$/.test(value) || /,\d{3},/.test(value)) return ".";
+  }
+  return (1.5).toLocaleString().includes(",") ? "," : ".";
+}
+
+export function tableSignature(table: HTMLTableElement): string {
+  let hash = 0x811c9dc5;
+  for (const character of table.outerHTML) hash = Math.imul(hash ^ character.charCodeAt(0), 0x01000193);
+  return (hash >>> 0).toString(36);
 }
 
 function cells(row: HTMLTableRowElement): string[] {
@@ -50,9 +74,16 @@ export function tableRows(table: HTMLTableElement): string[][] {
   return [...table.rows].map(cells);
 }
 
+function inert(value: string): string {
+  if (!/^[=+\-@\t\r]/.test(value) || /^[-+]\d[\d.,]*%?$/.test(value)) return value;
+  return `'${value}`;
+}
+
 export function delimited(rows: string[][], separator: string): string {
-  const quote = (value: string) =>
-    value.includes(separator) || /["\n\r]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+  const quote = (cell: string) => {
+    const value = inert(cell);
+    return value.includes(separator) || /["\n\r]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+  };
   return rows.map((row) => row.map(quote).join(separator)).join("\r\n");
 }
 
@@ -96,22 +127,41 @@ export class TableBlock extends LitElement {
 
   private sortColumn = -1;
   private sort: Sort = "none";
+  private observer?: MutationObserver;
 
   connectedCallback(): void {
     super.connectedCallback();
     this.addEventListener("click", this.onClick);
     this.addEventListener("keydown", this.onKeydown);
     addDocumentStyles();
-    for (const header of this.headers()) {
-      header.tabIndex = 0;
-      header.setAttribute("aria-sort", "none");
-    }
+    this.observer = new window.MutationObserver(() => {
+      this.sortColumn = -1;
+      this.sort = "none";
+      this.prepare();
+    });
+    this.observer.observe(this, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+      attributes: true,
+      attributeFilter: ["tabindex", "aria-sort"],
+    });
+    this.prepare();
   }
 
   disconnectedCallback(): void {
     this.removeEventListener("click", this.onClick);
     this.removeEventListener("keydown", this.onKeydown);
+    this.observer?.disconnect();
     super.disconnectedCallback();
+  }
+
+  private prepare(): void {
+    for (const header of this.headers()) {
+      header.tabIndex = 0;
+      header.setAttribute("aria-sort", "none");
+    }
+    this.observer?.takeRecords();
   }
 
   protected render(): TemplateResult {
@@ -156,19 +206,25 @@ export class TableBlock extends LitElement {
     this.sortColumn = column;
     this.headers().forEach((header, index) => header.setAttribute("aria-sort", index === column ? this.sort : "none"));
     const key = (row: HTMLTableRowElement) => (row.cells[column]?.textContent ?? "").trim();
-    const numeric = rows.every((row) => !key(row) || cellNumber(key(row)) !== null);
+    const filled = rows.map(key).filter((value) => !emptyCell(value));
+    const decimal = columnDecimal(filled);
+    const numeric = filled.length > 0 && filled.every((value) => cellNumber(value, decimal) !== null);
+    const number = (row: HTMLTableRowElement) =>
+      emptyCell(key(row)) ? -Infinity : (cellNumber(key(row), decimal) ?? -Infinity);
     const direction = this.sort === "descending" ? -1 : 1;
     rows.sort((a, b) => {
       if (this.sort === "none") return Number(a.dataset.order) - Number(b.dataset.order);
-      if (numeric) return direction * ((cellNumber(key(a)) ?? -Infinity) - (cellNumber(key(b)) ?? -Infinity));
+      if (numeric) return direction * (number(a) - number(b) || 0);
       return direction * key(a).localeCompare(key(b), undefined, { numeric: true, sensitivity: "base" });
     });
     body.append(...rows);
+    this.observer?.takeRecords();
   }
 
   private async copy(): Promise<void> {
     const table = this.table();
-    if (table) await navigator.clipboard?.writeText(delimited(tableRows(table), "\t"));
+    if (!table) return;
+    await navigator.clipboard?.writeText(delimited(tableRows(table), "\t")).catch(() => undefined);
   }
 
   private download(): void {
