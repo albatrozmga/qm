@@ -55,7 +55,9 @@ test("a fully migrated database skips the base schema and drops only the retired
       ('sessions/store/0046-spend-days-cron-rebuild', 'x'), ('runs/store/0010-drop-turn-metrics', 'x'),
       ('directory/store/0005', 'x')`);
     await admin.query("CREATE TABLE directory_sync(org_id TEXT PRIMARY KEY, channel_members_synced BOOLEAN)");
-    await admin.query("CREATE TABLE sessions(id TEXT PRIMARY KEY, thread_ref TEXT, spawn_meta TEXT)");
+    await admin.query(
+      "CREATE TABLE sessions(id TEXT PRIMARY KEY, thread_ref TEXT, spawn_meta TEXT, parent_session_id TEXT)",
+    );
     await admin.query(
       "CREATE TABLE runs(id TEXT PRIMARY KEY, session_id TEXT, request TEXT, result TEXT, created_at BIGINT, seq BIGINT)",
     );
