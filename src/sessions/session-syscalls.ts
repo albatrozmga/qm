@@ -790,6 +790,9 @@ export function createSessionSyscalls(deps: SessionSyscallDeps): SessionSyscalls
               }`;
               const fingerprint = hashId([canonicalJson(input)], 40);
               const existing = await deps.sessions.getByThread(threadRef);
+              const parent = await deps.sessions.get(binding.session.id);
+              if (!parent || parent.deletedAt !== undefined)
+                return { ok: false, message: "this conversation was deleted, so it cannot open subagents." };
               if (existing?.spawnMeta?.openFingerprint && existing.spawnMeta.openFingerprint !== fingerprint)
                 throw new Error("the requestId was already used for different work");
               const initialRun = await deps.runs.getByDedupKey(`subagent-open:${threadRef}`);

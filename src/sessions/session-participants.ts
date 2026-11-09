@@ -22,7 +22,7 @@ export const participantSessionsSql = (extraWhere: string, columns = "s.*"): str
           ${SEES_ITEMS} AS has_entries
      FROM sessions s
      JOIN participants p ON p.session_id = s.id
-    WHERE p.principal_id = $1${extraWhere}`;
+    WHERE p.principal_id = $1 AND s.deleted_at IS NULL${extraWhere}`;
 
 export function createSessionParticipants(
   q: PgPool["q"],
@@ -56,7 +56,7 @@ export function createSessionParticipants(
          FROM participants p
         CROSS JOIN LATERAL (
           SELECT s.scope_id, s.channel_name, ${USER_ACTIVITY} AS activity, ${HAS_CONTENT} AS has_content
-            FROM sessions s WHERE s.id = p.session_id OFFSET 0
+            FROM sessions s WHERE s.id = p.session_id AND s.deleted_at IS NULL OFFSET 0
         ) s
         WHERE p.principal_id = $1
         GROUP BY s.scope_id`,

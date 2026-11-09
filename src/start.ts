@@ -11,6 +11,7 @@ import { slackAccountConfigsFromEnv, slackPluginConfigFromEnv, startSlackPlugin 
 import { createSlackRuntimeReconciler } from "./surfaces/slack-runtime.ts";
 import { migrateRegisteredPgSchemas } from "./persistence/pg-pool.ts";
 import { startFrontDoor } from "./web/front-door.ts";
+import { startDeletedSessionSweeper } from "./sessions/deleted-session-sweeper.ts";
 
 export async function startQm(
   config: Config,
@@ -120,12 +121,16 @@ export async function startQm(
   );
 
   const slackRuntimes = [slackRuntime, ...slackAccountRuntimes];
+  let stopDeletedSessionSweeper: (() => void) | undefined;
   built.runtime.start({
     resume() {
       built.scheduler.start(1000);
+      stopDeletedSessionSweeper ??= startDeletedSessionSweeper(built.sessions);
       for (const runtime of slackRuntimes) runtime.start();
     },
     async standDown() {
+      stopDeletedSessionSweeper?.();
+      stopDeletedSessionSweeper = undefined;
       const stopped = await Promise.allSettled([
         built.scheduler.stopClaims(),
         ...slackRuntimes.map((runtime) => runtime.stop()),

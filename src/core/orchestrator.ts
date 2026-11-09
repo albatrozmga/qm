@@ -919,6 +919,8 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
         screenSession.id = session.id;
         if (!input.sessionParticipantIds?.length && !automatedTurn)
           await deps.sessions.addParticipant(session.id, actor.id);
+        if (session.deletedAt !== undefined)
+          return { status: "refused", sessionId: session.id, reason: "This conversation was deleted." };
         if (input.shutdown?.aborted)
           return { status: "queued", sessionId: session.id, ...(input.runId ? { runId: input.runId } : {}) };
         let approval: PendingApproval;
@@ -1963,6 +1965,8 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
         openResourceAccess: !external && (liveAuthorTurn || openAutomationKeychain),
         visibleSkillsForTurn,
       });
+      if (session.deletedAt !== undefined)
+        return { status: "refused", sessionId: session.id, reason: "This conversation was deleted." };
       if (input.shutdown?.aborted)
         return { status: "queued", sessionId: session.id, ...(input.runId ? { runId: input.runId } : {}) };
       const turnStart = Date.now();

@@ -184,6 +184,23 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
       return rows.map(rowToSession);
     },
 
+    async markSessionDeleted(sessionId, at): Promise<void> {
+      await q(
+        `WITH RECURSIVE tree AS (
+           SELECT id FROM sessions WHERE id = $1
+           UNION
+           SELECT s.id FROM sessions s JOIN tree t ON s.parent_session_id = t.id
+         )
+         UPDATE sessions SET deleted_at = $2 WHERE id IN (SELECT id FROM tree) AND deleted_at IS NULL`,
+        [sessionId, at],
+      );
+    },
+
+    async listDeletedBefore(cutoff): Promise<string[]> {
+      const rows = await q("SELECT id FROM sessions WHERE deleted_at IS NOT NULL AND deleted_at < $1", [cutoff]);
+      return rows.map((r) => r.id as string);
+    },
+
     async deleteSession(sessionId): Promise<void> {
       await withPgTransaction(await pool(), async (client) => {
         await lockSession(client, sessionId);

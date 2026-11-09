@@ -427,6 +427,30 @@ const SESSION_PERSONA: PgMigrationDefinition = {
   statements: [`SET LOCAL lock_timeout = '5s'`, `ALTER TABLE sessions ADD COLUMN IF NOT EXISTS persona_id TEXT`],
 };
 
+const ALBATROZ_DELETED_AT: PgMigrationDefinition = {
+  id: "sessions/store/albatroz-0001",
+  expectedChecksum: "b05c992e55486906fd2a06ea157f7f8808b4c727c8c77ef6d09f4ceb78ad8ae7",
+  statements: [`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS deleted_at BIGINT`],
+};
+
+const ALBATROZ_DELETED_TREES: PgMigrationDefinition = {
+  id: "sessions/store/albatroz-0002-deleted-trees",
+  expectedChecksum: "2b0aba663e07dc05ad8daa7062dffac3ab4750dece2dc5b75a74c9b2cbfb73b8",
+  statements: [
+    `UPDATE sessions SET deleted_at = 0
+            WHERE deleted_at IS NOT NULL AND thread_ref LIKE 'web:%'
+              AND (thread_ref LIKE '%:inbox' OR thread_ref LIKE '%:app-edit:%')`,
+    `WITH RECURSIVE tree AS (
+             SELECT id, deleted_at FROM sessions WHERE deleted_at IS NOT NULL
+             UNION
+             SELECT s.id, t.deleted_at FROM sessions s JOIN tree t ON s.parent_session_id = t.id
+           )
+           UPDATE sessions s SET deleted_at = t.deleted_at
+             FROM (SELECT id, MIN(deleted_at) AS deleted_at FROM tree GROUP BY id) t
+            WHERE s.id = t.id AND s.deleted_at IS NULL`,
+  ],
+};
+
 export const SESSION_MIGRATIONS = [
   TENANCY_BASE,
   SESSION_SCHEMA,
@@ -439,6 +463,8 @@ export const SESSION_MIGRATIONS = [
   PARTICIPANT_MEMBERSHIP,
   DROP_TENANT_PREBUILD_INDEXES,
   SESSION_PERSONA,
+  ALBATROZ_DELETED_AT,
+  ALBATROZ_DELETED_TREES,
 ];
 
 export const ancestry = (seed: string): string => `ancestry AS (
