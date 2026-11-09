@@ -29,6 +29,7 @@ import {
   Plus,
   RefreshCw,
   SquareTerminal,
+  Trash2,
   Users,
   X,
   type IconNode,
@@ -43,6 +44,7 @@ import {
   detachSession,
   inheritedTranscript,
   entriesToMessages,
+  deleteSession,
   regenerateTitle,
   sharedContextLabel,
   slackThreadUrl,
@@ -1244,6 +1246,18 @@ function sessionMenuPopover(s: CoreSession): TemplateResult {
       <button class="session-menu-option" type="button" role="menuitem" @click=${() => setArchived(s, !archived)}>
         ${archived ? icon(ArchiveRestore, 15) : icon(Archive, 15)}<span>${archived ? "Unarchive" : "Archive"}</span>
       </button>
+      ${
+        deletableWebChat(s)
+          ? html`<button
+              class="session-menu-option danger"
+              type="button"
+              role="menuitem"
+              @click=${() => void deleteSessionAction(s)}
+            >
+              ${icon(Trash2, 15)}<span>${pendingDeleteId === s.id ? "Confirm delete" : "Delete"}</span>
+            </button>`
+          : nothing
+      }
       ${sessionColorRow(s)}
     </div>
   `;
@@ -1408,6 +1422,7 @@ async function copySessionLink(s: CoreSession): Promise<void> {
 
 function toggleSessionMenu(e: Event, id: string): void {
   e.stopPropagation();
+  pendingDeleteId = null;
   sessionsState.openMenuId = sessionsState.openMenuId === id ? null : id;
   renderList();
 }
@@ -1621,6 +1636,35 @@ function markOpenSessionsRead(): void {
   const open = new Set(openConversationIds());
   for (const s of sessionsState.list) {
     if (s.unread && open.has(s.id) && s.id !== keptUnreadId) void persistSessionPatch(s.id, { unread: false });
+  }
+}
+
+let pendingDeleteId: string | null = null;
+
+function deletableWebChat(s: CoreSession): boolean {
+  return (
+    s.type === "dm" &&
+    s.threadRef.startsWith("web:") &&
+    !s.threadRef.endsWith(":inbox") &&
+    !s.threadRef.includes(":app-edit:")
+  );
+}
+
+async function deleteSessionAction(s: CoreSession): Promise<void> {
+  if (pendingDeleteId !== s.id) {
+    pendingDeleteId = s.id;
+    renderList();
+    return;
+  }
+  pendingDeleteId = null;
+  sessionsState.openMenuId = null;
+  closeSessionSurfaces(s.id);
+  sessionsState.list = sessionsState.list.filter((x) => x.id !== s.id);
+  renderList();
+  try {
+    await deleteSession(s.id);
+  } catch {
+    await refreshSessions({ silent: true });
   }
 }
 

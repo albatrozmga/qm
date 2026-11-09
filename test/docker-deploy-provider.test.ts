@@ -9,6 +9,7 @@ test("Docker deployments use isolated networks and remove them on destroy", asyn
   const calls: string[][] = [];
   const dockerExec: DockerExec = async (args) => {
     calls.push(args);
+    if (args[0] === "port") return { code: 0, stdout: "127.0.0.1:49153\n", stderr: "" };
     return {
       code: args[1] === "inspect" ? 1 : 0,
       stdout: "",
@@ -88,6 +89,7 @@ test("a deployment network created concurrently is reused, and a create that lea
       networkExists = createLeavesNetwork;
       return { code: 1, stdout: "", stderr: "network with name x already exists" };
     }
+    if (args[0] === "port") return { code: 0, stdout: "127.0.0.1:49153\n", stderr: "" };
     return { code: 0, stdout: "", stderr: "" };
   };
   const store = createDeployStore();
@@ -177,4 +179,164 @@ test("a Docker app that only answers 5xx fails publish, reports its output and l
   );
   assert.match(reported[0]!.message, new RegExp(`\\(deployment ${d.id}\\)`), "the record names the deployment");
   assert.equal(calls.at(-2)!.join(" "), `rm -f agent-deploy-${d.id.slice(0, 12)}`);
+});
+
+test("Docker deployments let the daemon pick a free host port instead of a fixed range", async () => {
+  const calls: string[][] = [];
+  const dockerExec: DockerExec = async (args) => {
+    calls.push(args);
+    if (args[0] === "port") return { code: 0, stdout: "127.0.0.1:49321\n[::1]:49321\n", stderr: "" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const store = createDeployStore();
+  const deployment = await store.create({
+    ownerScopeId: scopeId("personal", "U1"),
+    createdBy: "U1",
+    entrypoint: "node server.js",
+    snapshotDir: "/snap/port",
+  });
+  const provider = createDockerDeployProvider({ dockerExec });
+  const containerName = `agent-deploy-${deployment.id.slice(0, 12)}`;
+
+  assert.deepEqual(await provider.apply(deployment, deployment.versions[0]!), { host: "127.0.0.1", port: 49321 });
+  const run = calls.find((args) => args[0] === "run")!;
+  assert.equal(run[run.indexOf("-p") + 1], "127.0.0.1::8080");
+  assert.ok(calls.some((args) => args.join(" ") === `port ${containerName} 8080/tcp`));
+});
+
+test("a Docker deployment without a published port fails publish with its logs and leaves no container", async () => {
+  const calls: string[][] = [];
+  const dockerExec: DockerExec = async (args) => {
+    calls.push(args);
+    if (args[0] === "port") return { code: 1, stdout: "", stderr: "Error: No public port '8080/tcp' published" };
+    if (args[0] === "logs") return { code: 0, stdout: "", stderr: "Cannot find module 'express'\n" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const store = createDeployStore();
+  const deployment = await store.create({
+    ownerScopeId: scopeId("personal", "U1"),
+    createdBy: "U1",
+    entrypoint: "node server.js",
+    snapshotDir: "/snap/noport",
+  });
+  const provider = createDockerDeployProvider({ dockerExec });
+  const containerName = `agent-deploy-${deployment.id.slice(0, 12)}`;
+
+  await assert.rejects(provider.apply(deployment, deployment.versions[0]!), /Cannot find module 'express'/);
+  const portCall = calls.findIndex((args) => args[0] === "port");
+  assert.ok(calls.slice(portCall).some((args) => args.join(" ") === `rm -f ${containerName}`));
+  assert.ok(calls.slice(portCall).some((args) => args.join(" ") === `network rm ${containerName}-net`));
+});
+
+test("Docker endpoint resolution follows the port the running container is published on", async () => {
+  let published = "127.0.0.1:49400\n";
+  let portCalls = 0;
+  const dockerExec: DockerExec = async (args) => {
+    if (args[0] === "port") portCalls++;
+    if (args[0] === "ps") return { code: 0, stdout: `${args[3]!.slice("name=".length)}\tnet\n`, stderr: "" };
+    if (args[0] === "port") {
+      return published
+        ? { code: 0, stdout: published, stderr: "" }
+        : { code: 1, stdout: "", stderr: "Error: No public port '8080/tcp' published" };
+    }
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const store = createDeployStore();
+  const deployment = await store.create({
+    ownerScopeId: scopeId("personal", "U1"),
+    createdBy: "U1",
+    entrypoint: "node server.js",
+    snapshotDir: "/snap/restart",
+  });
+  await store.setEndpoint(deployment.id, { host: "127.0.0.1", port: 49153 });
+  const running = (await store.get(deployment.id))!;
+  const provider = createDockerDeployProvider({ dockerExec });
+
+  assert.deepEqual(await provider.resolveEndpoint!(running, running.versions[0]!), { host: "127.0.0.1", port: 49400 });
+  await store.setEndpoint(deployment.id, { host: "127.0.0.1", port: 49400 });
+  const persisted = (await store.get(deployment.id))!;
+  assert.deepEqual(await provider.resolveEndpoint!(persisted, persisted.versions[0]!), {
+    host: "127.0.0.1",
+    port: 49400,
+  });
+  assert.equal(portCalls, 1, "the stored endpoint just checked is served from the check cache");
+
+  published = "127.0.0.1:49500\n";
+  await store.setEndpoint(deployment.id, { host: "127.0.0.1", port: 49500 });
+  const redeployed = (await store.get(deployment.id))!;
+  assert.deepEqual(await provider.resolveEndpoint!(redeployed, redeployed.versions[0]!), {
+    host: "127.0.0.1",
+    port: 49500,
+  });
+  assert.equal(portCalls, 2, "a re-applied deployment's new endpoint is checked, not served the old cached port");
+
+  published = "";
+  await store.setEndpoint(deployment.id, { host: "127.0.0.1", port: 49600 });
+  const unpublished = (await store.get(deployment.id))!;
+  assert.equal(await provider.resolveEndpoint!(unpublished, unpublished.versions[0]!), null);
+});
+
+test("a transient docker port failure does not report the deployment missing", async () => {
+  const dockerExec: DockerExec = async (args) => {
+    if (args[0] === "ps") return { code: 0, stdout: `${args[3]!.slice("name=".length)}\tnet\n`, stderr: "" };
+    if (args[0] === "port") return { code: 1, stdout: "", stderr: "Cannot connect to the Docker daemon" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const store = createDeployStore();
+  const deployment = await store.create({
+    ownerScopeId: scopeId("personal", "U1"),
+    createdBy: "U1",
+    entrypoint: "node server.js",
+    snapshotDir: "/snap/daemon",
+  });
+  await store.setEndpoint(deployment.id, { host: "127.0.0.1", port: 49153 });
+  const running = (await store.get(deployment.id))!;
+  const provider = createDockerDeployProvider({ dockerExec });
+
+  await assert.rejects(provider.resolveEndpoint!(running, running.versions[0]!), /Cannot connect to the Docker daemon/);
+});
+
+test("Docker deployments get a durable data volume that outlives destroy", async () => {
+  const calls: string[][] = [];
+  const dockerExec: DockerExec = async (args) => {
+    calls.push(args);
+    if (args[0] === "port") return { code: 0, stdout: "127.0.0.1:49500\n", stderr: "" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const store = createDeployStore();
+  const deployment = await store.create({
+    ownerScopeId: scopeId("personal", "U1"),
+    createdBy: "U1",
+    entrypoint: "node server.js",
+    snapshotDir: "/snap/data",
+    env: { DATA_DIR: "./data", PORT: "3000" },
+  });
+  const provider = createDockerDeployProvider({ dockerExec });
+
+  assert.equal(provider.profile.dataDir, "/data");
+  await provider.apply(deployment, deployment.versions[0]!);
+  const run = calls.find((args) => args[0] === "run")!.join(" ");
+  assert.ok(run.includes(`-v /snap/data:/app:ro -v agent-deploy-data-${deployment.id}:/data`));
+  assert.ok(run.includes(`-e DATA_DIR=./data -e PORT=3000 -e PORT=8080 -e DATA_DIR=/data node:24 sh -c`));
+  await provider.destroy(deployment);
+  assert.ok(!calls.some((args) => args[0] === "volume"));
+});
+
+test("a Docker deployment that crashes on boot points the author at the data directory", async () => {
+  const dockerExec: DockerExec = async (args) => {
+    if (args[0] === "port") return { code: 1, stdout: "", stderr: "Error: No public port '8080/tcp' published" };
+    if (args[0] === "logs")
+      return { code: 0, stdout: "", stderr: "Error: EROFS: read-only file system, mkdir '/app/.data'\n" };
+    return { code: 0, stdout: "", stderr: "" };
+  };
+  const store = createDeployStore();
+  const deployment = await store.create({
+    ownerScopeId: scopeId("personal", "U1"),
+    createdBy: "U1",
+    entrypoint: "node server.js",
+    snapshotDir: "/snap/ro",
+  });
+  const provider = createDockerDeployProvider({ dockerExec });
+
+  await assert.rejects(provider.apply(deployment, deployment.versions[0]!), /\$DATA_DIR=\/data.*EROFS/s);
 });

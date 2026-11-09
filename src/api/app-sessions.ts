@@ -4,7 +4,7 @@ import { composeSoul } from "../resolution/resolution-service.ts";
 import { createCurrentScopeMembers } from "../resolution/scope-membership.ts";
 import { notifyDeploymentShared } from "../deploy/share-notice.ts";
 import { deploymentShareScope } from "../deploy/email-access.ts";
-import { workingSessionThreadRefs } from "../sessions/session-syscalls.ts";
+import { stopSessionTree, workingSessionThreadRefs } from "../sessions/session-syscalls.ts";
 import type { ParticipantPageQuery } from "../sessions/session-store.ts";
 import type { PendingApprovalRecord, Session } from "../types.ts";
 import { orgId as orgIdOf } from "../config.ts";
@@ -65,6 +65,9 @@ const GOAL_CANCEL_LEASE_WAIT_MS = 30_000;
 
 const MAX_LISTED_CHILDREN = 500;
 
+const deletableWebChat = (type: Session["type"], threadRef: string): boolean =>
+  type === "dm" && threadRef.startsWith("web:") && !threadRef.endsWith(":inbox") && !threadRef.includes(":app-edit:");
+
 export function createSessionMethods(
   deps: AppDeps,
   h: AppHelpers,
@@ -106,6 +109,7 @@ export function createSessionMethods(
   | "updateSession"
   | "detachSession"
   | "cancelSessionGoal"
+  | "deleteSessionForViewer"
   | "regenerateTitle"
   | "spawnSession"
   | "discardSession"
@@ -1043,6 +1047,27 @@ export function createSessionMethods(
       } finally {
         await deps.sessions.releaseLease(lease);
       }
+    },
+
+    async deleteSessionForViewer(sessionId, principalId) {
+      const session = (await sessionsForViewer(principalId)).find((s) => s.id === sessionId);
+      if (!session) return "not_found";
+      if (!deletableWebChat(session.type, session.threadRef)) return "forbidden";
+      const stopTree = async () => {
+        if (deps.signals)
+          await stopSessionTree(
+            { sessions: deps.sessions, runs: deps.runs, signals: deps.signals },
+            session,
+            "because the chat was deleted",
+          );
+      };
+      const remove = async () => {
+        await stopTree();
+        await deps.sessions.markSessionDeleted(sessionId, Date.now());
+        await stopTree();
+      };
+      await (deps.advisoryLock ? deps.advisoryLock.withLock("session-tree-admission", remove) : remove());
+      return "ok";
     },
 
     async regenerateTitle(sessionId, principalId) {

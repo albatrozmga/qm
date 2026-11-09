@@ -137,6 +137,7 @@ export function rowToSession(r: Record<string, unknown>): Session {
       : {}),
     ...(r.parent_session_id != null ? { parentSessionId: r.parent_session_id as string } : {}),
     ...(r.spawn_meta != null ? { spawnMeta: JSON.parse(r.spawn_meta as string) as Session["spawnMeta"] } : {}),
+    ...(r.deleted_at != null ? { deletedAt: Number(r.deleted_at) } : {}),
   };
 }
 
@@ -316,7 +317,7 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
             ${SEES_ITEMS} AS has_entries
        FROM sessions s
        JOIN participants p ON p.session_id = s.id
-      WHERE p.principal_id = $1${extraWhere}`;
+      WHERE p.principal_id = $1 AND s.deleted_at IS NULL${extraWhere}`;
   const participantSessions = async (principalId: string, opts?: { limit: number }): Promise<Session[]> => {
     const limit = opts ? Math.max(0, Math.floor(opts.limit)) : undefined;
     const rows = await q(
@@ -333,7 +334,7 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
               MAX(${USER_ACTIVITY}) FILTER (WHERE ${HAS_CONTENT}) AS last_activity
          FROM sessions s
          JOIN participants p ON p.session_id = s.id
-        WHERE p.principal_id = $1
+        WHERE p.principal_id = $1 AND s.deleted_at IS NULL
         GROUP BY s.scope_id`,
       [principalId],
     );
@@ -348,6 +349,7 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
     const params: unknown[] = [principalId];
     const where: string[] = [
       "p.principal_id = $1",
+      "s.deleted_at IS NULL",
       "s.parent_session_id IS NULL",
       "(s.side_chat IS NULL OR s.side_chat->>'expanded' = 'true')",
       `(s.surface IS NULL OR s.surface NOT IN ${AUTOMATION_SURFACES})`,
@@ -1066,6 +1068,28 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
       id: "sessions/store/0046-spend-days-cron-rebuild",
       statements: [`INSERT INTO session_spend_dirty(day) SELECT day FROM session_spend_days ON CONFLICT DO NOTHING`],
     },
+    {
+      id: "sessions/store/albatroz-0001",
+      expectedChecksum: "b05c992e55486906fd2a06ea157f7f8808b4c727c8c77ef6d09f4ceb78ad8ae7",
+      statements: [`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS deleted_at BIGINT`],
+    },
+    {
+      id: "sessions/store/albatroz-0002-deleted-trees",
+      expectedChecksum: "2b0aba663e07dc05ad8daa7062dffac3ab4750dece2dc5b75a74c9b2cbfb73b8",
+      statements: [
+        `UPDATE sessions SET deleted_at = 0
+            WHERE deleted_at IS NOT NULL AND thread_ref LIKE 'web:%'
+              AND (thread_ref LIKE '%:inbox' OR thread_ref LIKE '%:app-edit:%')`,
+        `WITH RECURSIVE tree AS (
+             SELECT id, deleted_at FROM sessions WHERE deleted_at IS NOT NULL
+             UNION
+             SELECT s.id, t.deleted_at FROM sessions s JOIN tree t ON s.parent_session_id = t.id
+           )
+           UPDATE sessions s SET deleted_at = t.deleted_at
+             FROM (SELECT id, MIN(deleted_at) AS deleted_at FROM tree GROUP BY id) t
+            WHERE s.id = t.id AND s.deleted_at IS NULL`,
+      ],
+    },
   ]);
 
   const lockSession = (client: PoolClient, sessionId: string) =>
@@ -1268,6 +1292,8 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
       const t = now();
       return withPgTransaction(await pool(), async (client) => {
         await lockSession(client, sessionId);
+        const live = await client.query("SELECT 1 FROM sessions WHERE id = $1 AND deleted_at IS NULL", [sessionId]);
+        if (!live.rows[0]) return { lease: null };
         for (;;) {
           const granted = await client.query(
             `INSERT INTO session_leases(session_id, token, expires_at, holder, acquired_at)
@@ -1623,6 +1649,23 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
       );
     },
 
+    async markSessionDeleted(sessionId, at): Promise<void> {
+      await q(
+        `WITH RECURSIVE tree AS (
+           SELECT id FROM sessions WHERE id = $1
+           UNION
+           SELECT s.id FROM sessions s JOIN tree t ON s.parent_session_id = t.id
+         )
+         UPDATE sessions SET deleted_at = $2 WHERE id IN (SELECT id FROM tree) AND deleted_at IS NULL`,
+        [sessionId, at],
+      );
+    },
+
+    async listDeletedBefore(cutoff): Promise<string[]> {
+      const rows = await q("SELECT id FROM sessions WHERE deleted_at IS NOT NULL AND deleted_at < $1", [cutoff]);
+      return rows.map((r) => r.id as string);
+    },
+
     async deleteSession(sessionId): Promise<void> {
       await withPgTransaction(await pool(), async (client) => {
         await lockSession(client, sessionId);
@@ -1809,6 +1852,7 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
            JOIN sessions s ON s.id = i.session_id
           WHERE i.tenant_id = ${TENANT} AND i.search @@ to_tsquery('simple', $2)
             AND ${SEARCHABLE_ITEM("i")}
+            AND s.deleted_at IS NULL
             AND ${withinParticipantWindow("i", "p")}
           ORDER BY i.created_at DESC, i.session_id, i.seq DESC
           LIMIT $3`,

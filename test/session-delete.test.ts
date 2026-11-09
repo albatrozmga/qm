@@ -1,0 +1,92 @@
+import "./support/auto-fake-sprites.ts";
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { buildApp } from "./support/build-app.ts";
+import type { TurnRequest } from "../src/types.ts";
+import { testConfig } from "./support/test-config.ts";
+
+function freshApp() {
+  const dataDir = mkdtempSync(join(tmpdir(), "ap-session-delete-"));
+  return buildApp(testConfig({ dataDir }));
+}
+function dm(text: string, thread: string, externalId: string): TurnRequest {
+  return { surface: "test", actor: { externalId }, conversation: { kind: "dm", threadRef: thread }, text };
+}
+
+test("o dono soft-deleta o próprio chat pessoal e ele some de toda visão", async () => {
+  const { app } = freshApp();
+  const outcome = await app.turn(dm("apaga depois melão", "web:alice:del1", "alice"));
+  const sessionId = outcome.sessionId!;
+
+  assert.equal(await app.deleteSessionForViewer(sessionId, "alice"), "ok");
+  assert.equal(await app.getSessionForViewer(sessionId, "alice"), null, "some até para o dono");
+  assert.ok(!(await app.listSessions("alice")).some((s) => s.id === sessionId), "fora da lista");
+  assert.equal(await app.deleteSessionForViewer(sessionId, "alice"), "not_found", "repetido: já invisível");
+  assert.ok(
+    !(await app.searchSessions("alice", "melão")).some((h) => h.sessionId === sessionId),
+    "não aparece mais na busca",
+  );
+});
+
+test("sessão de DM do Slack é recusada (threadRef não é web:, evita destravar a conversa no Slack)", async () => {
+  const { app } = freshApp();
+  const outcome = await app.turn(dm("dm do slack", "dm:D12345", "alice"));
+  assert.equal(await app.deleteSessionForViewer(outcome.sessionId!, "alice"), "forbidden");
+});
+
+test("não-participante não deleta (e não descobre que existe)", async () => {
+  const { app } = freshApp();
+  const outcome = await app.turn(dm("privado", "web:alice:del2", "alice"));
+  assert.equal(await app.deleteSessionForViewer(outcome.sessionId!, "carol"), "not_found");
+  assert.ok(
+    (await app.listSessions("alice")).some((s) => s.id === outcome.sessionId),
+    "segue viva para o dono",
+  );
+});
+
+test("sessão de canal/grupo é recusada", async () => {
+  const { app } = freshApp();
+  const outcome = await app.turn({
+    surface: "test",
+    actor: { externalId: "alice" },
+    conversation: { kind: "channel", threadRef: "ch:C1:t1", channelRef: "C1", audience: [{ externalId: "alice" }] },
+    text: "num canal",
+  });
+  assert.equal(await app.deleteSessionForViewer(outcome.sessionId!, "alice"), "forbidden");
+});
+
+test("o chat do inbox e os de edição de app não podem ser apagados", async () => {
+  const { app } = freshApp();
+  const inbox = await app.turn(dm("pelo inbox", "web:alice:inbox", "alice"));
+  const appEdit = await app.turn(dm("editando o app", "web:alice:app-edit:painel", "alice"));
+
+  assert.equal(await app.deleteSessionForViewer(inbox.sessionId!, "alice"), "forbidden");
+  assert.equal(await app.deleteSessionForViewer(appEdit.sessionId!, "alice"), "forbidden");
+  const listed = (await app.listSessions("alice")).map((s) => s.id);
+  assert.ok(listed.includes(inbox.sessionId!) && listed.includes(appEdit.sessionId!));
+});
+
+test("uma mensagem nova num chat apagado é recusada em vez de rodar escondida", async () => {
+  const { app } = freshApp();
+  const first = await app.turn(dm("conversa que vai sumir", "web:alice:del3", "alice"));
+  assert.equal(await app.deleteSessionForViewer(first.sessionId!, "alice"), "ok");
+
+  const again = await app.turn(dm("aba antiga mandando de novo", "web:alice:del3", "alice"));
+
+  assert.equal(again.status, "refused");
+  assert.ok(!(await app.listSessions("alice")).some((s) => s.id === first.sessionId));
+});
+
+test("apagar um chat retira as respostas que ainda estavam na fila", async () => {
+  const { app, runs } = freshApp();
+  const first = await app.turn(dm("primeira", "web:alice:del4", "alice"));
+  const queued = await app.turn({ ...dm("segunda, na fila", "web:alice:del4", "alice"), async: true });
+  assert.ok(queued.runId);
+
+  assert.equal(await app.deleteSessionForViewer(first.sessionId!, "alice"), "ok");
+
+  assert.notEqual((await runs.get(queued.runId!))?.status, "pending");
+});

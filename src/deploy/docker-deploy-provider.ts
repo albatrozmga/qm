@@ -19,6 +19,7 @@ import {
 } from "./shared-deploy-provider.ts";
 
 const APP_PORT = 8080;
+const DATA_DIR = "/data";
 const APP_READY_WINDOW_SEC = 60;
 const RUN_TIMEOUT_MS = 300_000;
 const DAEMON_PROBE_TIMEOUT_MS = 10_000;
@@ -26,7 +27,6 @@ const DAEMON_PROBE_TIMEOUT_MS = 10_000;
 export interface DockerDeployProviderOptions {
   image?: string;
   docker?: string;
-  basePort?: number;
   dockerExec?: DockerExec;
   onError?: AppErrorSink;
 }
@@ -52,24 +52,6 @@ export async function dockerDaemonFailure(opts: DockerDaemonProbeOptions = {}): 
 export function createDockerDeployProvider(opts: DockerDeployProviderOptions = {}): DeployProvider {
   const docker = opts.docker ?? "docker";
   const image = opts.image ?? "node:24";
-  let nextPort = opts.basePort ?? 9200;
-  const ports = new Map<string, number>();
-  const freed: number[] = [];
-  const allocPort = (n: string): number => {
-    const existing = ports.get(n);
-    if (existing !== undefined) return existing;
-    const port = freed.pop() ?? nextPort++;
-    ports.set(n, port);
-    return port;
-  };
-  const freePort = (n: string): void => {
-    const p = ports.get(n);
-    if (p !== undefined) {
-      freed.push(p);
-      ports.delete(n);
-    }
-  };
-
   const dexec = opts.dockerExec ?? spawnDockerExec(docker);
 
   const name = (d: Deployment) => `agent-deploy-${d.id.slice(0, 12)}`;
@@ -78,16 +60,25 @@ export function createDockerDeployProvider(opts: DockerDeployProviderOptions = {
     (script, timeoutSec) =>
       dexec(["exec", name(d), "sh", "-c", script], timeoutSec * 1000);
   const checked = recentAppChecks();
+  const checkKey = (id: string, port: number | undefined) => `${id}:${port}`;
   const network = (d: Deployment) => `${name(d)}-net`;
+  const dataVolume = (d: Deployment) => `agent-deploy-data-${d.id}`;
   const exists = async (d: Deployment): Promise<boolean> => (await dockerContainerNetworks(dexec, name(d))) !== null;
+  const publishedPort = async (container: string): Promise<number | null> => {
+    const r = await dexec(["port", container, `${APP_PORT}/tcp`]);
+    if (r.code !== 0 && /no public port|no such container/i.test(r.stderr)) return null;
+    const port = Number(/^127\.0\.0\.1:(\d+)$/m.exec(r.stdout)?.[1]);
+    if (r.code !== 0 || !(port > 0))
+      throw new Error(`docker port ${container} failed: ${(r.stderr || r.stdout).trim()}`);
+    return port;
+  };
 
   return {
-    profile: { managedScaleToZero: false },
+    profile: { managedScaleToZero: false, dataDir: DATA_DIR },
 
     async apply(d: Deployment, version: DeploymentVersion): Promise<DeployEndpoint> {
       const net = await ensureDockerNetwork(dexec, network(d));
       await dexec(["rm", "-f", name(d)]);
-      const hostPort = allocPort(name(d));
       const envArgs = Object.entries(version.env ?? {}).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
       const r = await dexec(
         [
@@ -106,14 +97,18 @@ export function createDockerDeployProvider(opts: DockerDeployProviderOptions = {
           "--pids-limit",
           "256",
           "-p",
-          `127.0.0.1:${hostPort}:${APP_PORT}`,
+          `127.0.0.1::${APP_PORT}`,
           "-v",
           `${version.snapshotDir}:/app:ro`,
+          "-v",
+          `${dataVolume(d)}:${DATA_DIR}`,
           "-w",
           "/app",
+          ...envArgs,
           "-e",
           `PORT=${APP_PORT}`,
-          ...envArgs,
+          "-e",
+          `DATA_DIR=${DATA_DIR}`,
           image,
           "sh",
           "-c",
@@ -128,13 +123,19 @@ export function createDockerDeployProvider(opts: DockerDeployProviderOptions = {
           windowSec: APP_READY_WINDOW_SEC,
           report: appReporter(opts.onError, d, version.env),
         });
+        const port = await publishedPort(name(d));
+        if (port === null) {
+          const logs = await dexec(["logs", "--tail", "50", name(d)]);
+          throw new Error(
+            `deploy has no host port published for ${APP_PORT} (app files are read-only; write runtime state under $DATA_DIR=${DATA_DIR}): ${`${logs.stdout}${logs.stderr}`.trim()}`,
+          );
+        }
+        return { host: "127.0.0.1", port };
       } catch (e) {
         await dexec(["rm", "-f", name(d)]);
         await dexec(["network", "rm", net]);
-        freePort(name(d));
         throw e;
       }
-      return { host: "127.0.0.1", port: hostPort };
     },
 
     async logs(d: Deployment, opts: { tailLines: number }): Promise<string | null> {
@@ -145,16 +146,17 @@ export function createDockerDeployProvider(opts: DockerDeployProviderOptions = {
     async destroy(d: Deployment): Promise<void> {
       await dexec(["rm", "-f", name(d)]);
       await dexec(["network", "rm", network(d)]);
-      freePort(name(d));
     },
 
     async resolveEndpoint(d, version): Promise<DeployEndpoint | null> {
-      if (checked.has(d.id)) return d.endpoint;
+      if (checked.has(checkKey(d.id, d.endpoint?.port))) return d.endpoint;
       if (!(await exists(d))) return null;
       const report = appReporter(opts.onError, d, version.env);
       if (await appGone(execIn(d), { appPort: APP_PORT, report })) return null;
-      checked.set(d.id, true);
-      return d.endpoint;
+      const port = await publishedPort(name(d));
+      if (port === null) return null;
+      checked.set(checkKey(d.id, port), true);
+      return { host: "127.0.0.1", port };
     },
   };
 }

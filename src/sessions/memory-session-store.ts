@@ -105,6 +105,7 @@ export function createMemorySessionStore(opts: StoreOptions = {}): SessionStore 
   const participantSession = (sessionId: string, principalId: string): Session | null => {
     const s = sessions.get(sessionId);
     if (!s) return null;
+    if (s.deletedAt !== undefined) return null;
     const view = windows.get(sessionId)?.get(principalId);
     const all = entries.get(sessionId) ?? [];
     const log = all.filter((e) => e.type === "user");
@@ -205,7 +206,8 @@ export function createMemorySessionStore(opts: StoreOptions = {}): SessionStore 
     },
 
     async acquireLease(sessionId, holder): Promise<LeaseAttempt> {
-      if (!sessions.has(sessionId)) return { lease: null };
+      const session = sessions.get(sessionId);
+      if (!session || session.deletedAt !== undefined) return { lease: null };
       const held = leases.get(sessionId);
       if (held && now() < held.expiresAt)
         return {
@@ -264,6 +266,19 @@ export function createMemorySessionStore(opts: StoreOptions = {}): SessionStore 
       if (held && now() < held.expiresAt) return false;
       await this.deleteSession(sessionId);
       return true;
+    },
+
+    async markSessionDeleted(sessionId, at) {
+      const tree = new Set([sessionId]);
+      for (const id of tree) for (const s of sessions.values()) if (s.parentSessionId === id) tree.add(s.id);
+      for (const id of tree) {
+        const s = sessions.get(id);
+        if (s) s.deletedAt ??= at;
+      }
+    },
+
+    async listDeletedBefore(cutoff) {
+      return [...sessions.values()].filter((s) => s.deletedAt !== undefined && s.deletedAt < cutoff).map((s) => s.id);
     },
 
     async forceReleaseLease(sessionId) {
@@ -688,6 +703,7 @@ export function createMemorySessionStore(opts: StoreOptions = {}): SessionStore 
         const indexed = searchIndex.get(sessionId) ?? [];
         const session = sessions.get(sessionId);
         if (!session) continue;
+        if (session.deletedAt !== undefined) continue;
         for (const row of indexed) {
           if (!entryWithinTenure(row, win)) continue;
           const entry = entries.get(sessionId)?.[row.seq];
