@@ -1,4 +1,4 @@
-export type ValueFormat = "number" | "percent" | "currency";
+type ValueFormat = "number" | "percent" | "currency";
 
 export interface FormatSpec {
   format?: ValueFormat;

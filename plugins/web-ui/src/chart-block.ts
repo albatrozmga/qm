@@ -27,7 +27,7 @@ const PIE_SIZE = 240;
 
 const text = (value: unknown, limit = 120): string => String(value ?? "").slice(0, limit);
 
-export function parseChart(source: string): ChartSpec {
+function parseChart(source: string): ChartSpec {
   const raw = JSON.parse(source.trim()) as Record<string, unknown>;
   if (!raw || typeof raw !== "object") throw new Error("The chart spec must be a JSON object.");
   const type = raw.type as ChartType;

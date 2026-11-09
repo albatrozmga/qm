@@ -22,7 +22,7 @@ type Decimal = "," | ".";
 
 const PLACEHOLDER = /^(?:[-–—]+|\?|n\.?\/?a\.?|n\/d|s\/d)$/i;
 
-export function emptyCell(raw: string): boolean {
+function emptyCell(raw: string): boolean {
   const value = raw.trim();
   return !value || PLACEHOLDER.test(value);
 }
@@ -77,7 +77,7 @@ function cells(row: HTMLTableRowElement): string[] {
   return [...row.cells].map((cell) => (cell.textContent ?? "").trim());
 }
 
-export function tableRows(table: HTMLTableElement): string[][] {
+function tableRows(table: HTMLTableElement): string[][] {
   return [...table.rows].map(cells);
 }
 
