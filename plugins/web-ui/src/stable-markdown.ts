@@ -1,11 +1,17 @@
 import "./marked-dedupe.ts";
 import "./mermaid-block.ts";
 import "./draft-card.ts";
+import "./chart-block.ts";
+import "./kpi-block.ts";
+import { tableSignature } from "./table-block.ts";
 import { MarkdownBlock } from "@mariozechner/mini-lit/dist/MarkdownBlock.js";
 import "@mariozechner/mini-lit/dist/CodeBlock.js";
 import { ReactiveElement, render, type PropertyValues } from "lit";
 import morphdom from "morphdom";
 import { marked, type Tokens } from "marked";
+
+const BLOCK_ELEMENTS: Readonly<Record<string, string>> = { mermaid: "qm-mermaid", chart: "qm-chart", kpi: "qm-kpi" };
+const SOURCE_ELEMENTS = ["code-block", "qm-draft", ...Object.values(BLOCK_ELEMENTS)];
 
 export class StableMarkdown extends ReactiveElement {
   static properties = {
@@ -57,7 +63,7 @@ export class StableMarkdown extends ReactiveElement {
           result.push(node as Text);
       } else if (
         node.nodeType !== Node.ELEMENT_NODE ||
-        !["code-block", "qm-mermaid", "qm-draft", "svg", "style", "script"].includes((node as Element).localName)
+        ![...SOURCE_ELEMENTS, "svg", "style", "script"].includes((node as Element).localName)
       )
         node.childNodes.forEach(visit);
     };
@@ -172,8 +178,9 @@ export class StableMarkdown extends ReactiveElement {
           code.replaceWith(card);
           continue;
         }
-        if (language !== "mermaid") continue;
-        const diagram = document.createElement("qm-mermaid");
+        const element = BLOCK_ELEMENTS[language ?? ""];
+        if (!element) continue;
+        const diagram = document.createElement(element);
         diagram.setAttribute(
           "code",
           new TextDecoder().decode(
@@ -183,12 +190,24 @@ export class StableMarkdown extends ReactiveElement {
         if (this.isStreaming) diagram.setAttribute("pending", "");
         code.replaceWith(diagram);
       }
+      if (!this.isStreaming)
+        for (const table of target.querySelectorAll("table")) {
+          const wrapper = document.createElement("qm-table");
+          wrapper.dataset.source = tableSignature(table);
+          table.replaceWith(wrapper);
+          wrapper.append(table);
+        }
       const animate = this.isStreaming && !window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
       this.prepareFades(target, animate);
       morphdom(this, target, {
         childrenOnly: true,
         onBeforeElUpdated: (current, next) => {
-          if (["code-block", "qm-mermaid", "qm-draft"].includes(current.localName)) {
+          if (
+            current.localName === "qm-table" &&
+            current.getAttribute("data-source") === next.getAttribute("data-source")
+          )
+            return false;
+          if (SOURCE_ELEMENTS.includes(current.localName)) {
             for (const name of ["code", "language", "pending", "text"]) {
               const value = next.getAttribute(name);
               if (value !== current.getAttribute(name)) {

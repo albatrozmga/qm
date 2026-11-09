@@ -5,7 +5,7 @@ import { createCurrentScopeMembers } from "../resolution/scope-membership.ts";
 import { notifyAppShared } from "../deploy/share-notice.ts";
 import { appShareScope } from "../deploy/email-access.ts";
 import { DeployAccessError } from "../deploy/deploy-service.ts";
-import { workingSessionThreadRefs } from "../sessions/session-syscalls.ts";
+import { stopSessionTree, workingSessionThreadRefs } from "../sessions/session-syscalls.ts";
 import { sessionVisibleTo } from "../sessions/session-rows.ts";
 import type { ParticipantPageQuery, ToolStep } from "../sessions/session-store.ts";
 import type { PendingApprovalRecord, ScopeId, Session } from "../types.ts";
@@ -72,6 +72,9 @@ const GOAL_CANCEL_WAIT_MS = 30_000;
 
 const MAX_LISTED_CHILDREN = 500;
 
+const deletableWebChat = (type: Session["type"], threadRef: string): boolean =>
+  type === "dm" && threadRef.startsWith("web:") && !threadRef.endsWith(":inbox") && !threadRef.includes(":app-edit:");
+
 export function createSessionMethods(
   deps: AppDeps,
   h: AppHelpers,
@@ -115,6 +118,7 @@ export function createSessionMethods(
   | "detachSession"
   | "cancelSessionGoal"
   | "resumeSessionGoal"
+  | "deleteSessionForViewer"
   | "regenerateTitle"
   | "suggestNextPrompt"
   | "spawnSession"
@@ -1104,6 +1108,27 @@ export function createSessionMethods(
         await deps.sessions.setGoal({ sessionId: session.id }, goal);
       }
       return { resumed: true as const, goal: goalView(goal) };
+    },
+
+    async deleteSessionForViewer(sessionId, principalId) {
+      const session = (await sessionsForViewer(principalId)).find((s) => s.id === sessionId);
+      if (!session) return "not_found";
+      if (!deletableWebChat(session.type, session.threadRef)) return "forbidden";
+      const stopTree = async () => {
+        if (deps.signals)
+          await stopSessionTree(
+            { sessions: deps.sessions, runs: deps.runs, signals: deps.signals },
+            session,
+            "because the chat was deleted",
+          );
+      };
+      const remove = async () => {
+        await stopTree();
+        await deps.sessions.markSessionDeleted(sessionId, Date.now());
+        await stopTree();
+      };
+      await (deps.advisoryLock ? deps.advisoryLock.withLock("session-tree-admission", remove) : remove());
+      return "ok";
     },
 
     async regenerateTitle(sessionId, principalId) {

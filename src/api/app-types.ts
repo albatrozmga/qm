@@ -433,6 +433,7 @@ export interface App {
       readAt?: number;
     },
   ): Promise<Session | null>;
+  deleteSessionForViewer(sessionId: string, principalId: string): Promise<"ok" | "not_found" | "forbidden">;
   regenerateTitle(sessionId: string, principalId: string): Promise<{ title: string | null } | null>;
   suggestNextPrompt(
     sessionId: string,

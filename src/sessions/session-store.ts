@@ -468,6 +468,8 @@ export interface SessionStore {
     limit?: number,
     afterId?: string,
   ): Promise<Array<{ tenantId: string; id: string }>>;
+  markSessionDeleted(sessionId: string, at: number): Promise<void>;
+  listDeletedBefore(cutoff: number): Promise<string[]>;
 
   updateParticipantView(sessionId: string, principalId: string, patch: ParticipantViewPatch): Promise<void>;
 

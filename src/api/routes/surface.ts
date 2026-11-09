@@ -440,6 +440,24 @@ async function patchSession(ctx: ApiCtx): Promise<void> {
   return sendJson(res, 200, { session });
 }
 
+async function deleteSessionRoute(ctx: ApiCtx): Promise<void> {
+  const { res, app, deps, body } = ctx;
+  const id = ctx.params.id!;
+  const b = body as { principalId?: unknown };
+  const principalId = typeof b.principalId === "string" ? b.principalId : null;
+  if (!principalId) return sendJson(res, 400, { error: "bad_request", message: "principalId required" });
+  const outcome = await app.deleteSessionForViewer(id, principalId);
+  if (outcome === "not_found") return sendJson(res, 404, { error: "not_found" });
+  if (outcome === "forbidden") {
+    return sendJson(res, 403, {
+      error: "forbidden",
+      message: "only personal web chats can be deleted, except the inbox and app-edit chats",
+    });
+  }
+  audit(deps, { principalId, action: "session.delete", resource: id, scopeLabel: principalId });
+  return sendJson(res, 200, { ok: true });
+}
+
 async function listAgentConversations(ctx: ApiCtx): Promise<void> {
   const { res, app, capability } = ctx;
   if (!capability) {
@@ -1542,6 +1560,7 @@ export const surfaceRoutes: ReadonlyArray<Route<ApiCtx>> = [
     { method: "POST", path: "/v1/sessions", browser: true, auth: "source", handle: spawnWebSession },
     { method: "POST", path: "/v1/sessions/:id/fork", browser: true, auth: "source", handle: forkSession },
     { method: "POST", path: "/v1/sessions/:id/detach", browser: true, auth: "source", handle: detachSession },
+    { method: "POST", path: "/v1/sessions/:id/delete", browser: true, auth: "source", handle: deleteSessionRoute },
     { method: "POST", path: "/v1/sessions/:id/goal/cancel", browser: true, auth: "source", handle: cancelSessionGoal },
     { method: "POST", path: "/v1/sessions/:id/goal/resume", browser: true, auth: "source", handle: resumeSessionGoal },
     { method: "POST", path: "/v1/sessions/:id", browser: true, auth: "source", handle: patchSession },

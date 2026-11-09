@@ -9,7 +9,7 @@ const AUTOMATION_SURFACES = `(${[...AUTOMATION_SESSION_SURFACES].map((s) => `'${
 export const NOT_AUTOMATION_SURFACE = (s: string): string =>
   `(${s}.surface IS NULL OR ${s}.surface NOT IN ${AUTOMATION_SURFACES})`;
 export const OWN_CHAT = (s: string): string =>
-  `${s}.parent_session_id IS NULL AND NOT ${s}.ephemeral AND ${NOT_AUTOMATION_SURFACE(s)}`;
+  `${s}.deleted_at IS NULL AND ${s}.parent_session_id IS NULL AND NOT ${s}.ephemeral AND ${NOT_AUTOMATION_SURFACE(s)}`;
 export const USER_ACTIVITY = "COALESCE(s.last_user_activity, s.created_at)";
 export const BOT_VISIBLE = (botActor: boolean | undefined): string => (botActor === true ? " AND s.bot_work" : "");
 
@@ -43,6 +43,7 @@ export function rowToSession(r: Record<string, unknown>): Session {
     ...(r.spawn_meta != null ? { spawnMeta: JSON.parse(r.spawn_meta as string) as Session["spawnMeta"] } : {}),
     ...(r.bot_work === true ? { botWork: true as const } : {}),
     ...(r.ephemeral === true ? { ephemeral: true as const } : {}),
+    ...(r.deleted_at != null ? { deletedAt: Number(r.deleted_at) } : {}),
     ...((r.slack_binding as { author?: unknown } | null)?.author
       ? { surfaceBinding: r.slack_binding as Session["surfaceBinding"] }
       : {}),

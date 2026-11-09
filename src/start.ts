@@ -52,6 +52,7 @@ function envSlackAccountRuntimes(
     }),
   );
 }
+import { startDeletedSessionSweeper } from "./sessions/deleted-session-sweeper.ts";
 
 export async function startQm(
   config: Config,
@@ -198,13 +199,19 @@ export async function startQm(
   );
 
   const slackRuntimes = [slackRuntime, ...slackAccountRuntimes];
+  // ponytail: purges soft-deleted chats for the boot tenant only; needs a claim function if we ever go multi-tenant
+  let stopDeletedSessionSweeper: (() => void) | undefined;
   inBootTenant(tenant, () =>
     built.runtime.start({
       resume() {
         built.scheduler.start(1000);
+        if (tenant)
+          stopDeletedSessionSweeper ??= inBootTenant(tenant, () => startDeletedSessionSweeper(built.sessions));
         for (const runtime of slackRuntimes) runtime.start();
       },
       async standDown() {
+        stopDeletedSessionSweeper?.();
+        stopDeletedSessionSweeper = undefined;
         const stopped = await Promise.allSettled([
           built.scheduler.stopClaims(),
           ...slackRuntimes.map((runtime) => runtime.stop()),

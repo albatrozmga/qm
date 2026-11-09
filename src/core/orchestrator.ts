@@ -742,6 +742,8 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
         screenSession.id = session.id;
         if (!input.sessionParticipantIds?.length && !automatedTurn)
           await deps.sessions.addParticipant(session.id, actor.id);
+        if (session.deletedAt !== undefined)
+          return { status: "refused", sessionId: session.id, reason: "This conversation was deleted." };
         if (input.shutdown?.aborted)
           return { status: "queued", sessionId: session.id, ...(input.runId ? { runId: input.runId } : {}) };
         const heldReason = `${flaggedScreenedInput.reason}; flagged sources: ${flaggedScreenedInput.sources.join(", ") || "message"}`;
@@ -1388,6 +1390,8 @@ export function createOrchestrator(deps: OrchestratorDeps): Orchestrator {
         openResourceAccess: !external && (livePersonTurn || openAutomationKeychain),
         visibleSkillsForTurn,
       });
+      if (session.deletedAt !== undefined)
+        return { status: "refused", sessionId: session.id, reason: "This conversation was deleted." };
       if (input.shutdown?.aborted)
         return { status: "queued", sessionId: session.id, ...(input.runId ? { runId: input.runId } : {}) };
       const turnStart = Date.now();
