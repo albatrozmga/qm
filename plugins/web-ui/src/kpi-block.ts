@@ -18,7 +18,7 @@ const MEANINGS = { good: "favorable", bad: "unfavorable", "": "unchanged" } as c
 
 const text = (value: unknown, limit: number): string => String(value ?? "").slice(0, limit);
 
-export function parseKpis(source: string): KpiItem[] {
+function parseKpis(source: string): KpiItem[] {
   const raw = JSON.parse(source.trim()) as unknown;
   const shared = raw && !Array.isArray(raw) && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const list = Array.isArray(raw) ? raw : shared.items;
