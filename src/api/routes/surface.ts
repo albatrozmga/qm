@@ -441,7 +441,7 @@ async function patchSession(ctx: ApiCtx): Promise<void> {
 }
 
 async function deleteSessionRoute(ctx: ApiCtx): Promise<void> {
-  const { res, app, deps, body } = ctx;
+  const { res, app, body } = ctx;
   const id = ctx.params.id!;
   const b = body as { principalId?: unknown };
   const principalId = typeof b.principalId === "string" ? b.principalId : null;
@@ -454,7 +454,7 @@ async function deleteSessionRoute(ctx: ApiCtx): Promise<void> {
       message: "only personal web chats can be deleted, except the inbox and app-edit chats",
     });
   }
-  audit(deps, { principalId, action: "session.delete", resource: id, scopeLabel: principalId });
+  audit(ctx, { principalId, action: "session.delete", resource: id, scopeLabel: principalId });
   return sendJson(res, 200, { ok: true });
 }
 

@@ -1111,7 +1111,7 @@ export function createSessionMethods(
     },
 
     async deleteSessionForViewer(sessionId, principalId) {
-      const session = (await sessionsForViewer(principalId)).find((s) => s.id === sessionId);
+      const session = (await sessionsForViewer({ actorId: principalId })).find((s) => s.id === sessionId);
       if (!session) return "not_found";
       if (!deletableWebChat(session.type, session.threadRef)) return "forbidden";
       const stopTree = async () => {
