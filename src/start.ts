@@ -199,7 +199,6 @@ export async function startQm(
   );
 
   const slackRuntimes = [slackRuntime, ...slackAccountRuntimes];
-  // ponytail: purges soft-deleted chats for the boot tenant only; needs a claim function if we ever go multi-tenant
   let stopDeletedSessionSweeper: (() => void) | undefined;
   inBootTenant(tenant, () =>
     built.runtime.start({
