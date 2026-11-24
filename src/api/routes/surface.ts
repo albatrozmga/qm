@@ -446,7 +446,7 @@ async function deleteSessionRoute(ctx: ApiCtx): Promise<void> {
   const b = body as { principalId?: unknown };
   const principalId = typeof b.principalId === "string" ? b.principalId : null;
   if (!principalId) return sendJson(res, 400, { error: "bad_request", message: "principalId required" });
-  const outcome = await app.deleteSessionForViewer(id, principalId);
+  const outcome = await app.deleteSessionForViewer(tenantOf(ctx), id, principalId);
   if (outcome === "not_found") return sendJson(res, 404, { error: "not_found" });
   if (outcome === "forbidden") {
     return sendJson(res, 403, {

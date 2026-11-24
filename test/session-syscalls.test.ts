@@ -42,6 +42,7 @@ import { createPostgresRunStore } from "../src/runs/postgres-run-store.ts";
 import { createPostgresRunSignalStore } from "../src/runs/postgres-run-signal-store.ts";
 import type { RunSignal } from "../src/runs/run-signal-store.ts";
 import { liveSubagentsNote } from "../src/sessions/subagent-status.ts";
+import { ambientTenant } from "../src/tenants/context.ts";
 
 const unexpectedSteer: SessionSyscallDeps["steerRun"] = async () => {
   throw new Error("unexpected steer");
@@ -226,7 +227,7 @@ for (const explicit of [
 test("a turn whose conversation was deleted cannot open a subagent", async () => {
   const r = await rig();
   const syscalls = r.syscallsFor(r.room);
-  await r.sessions.markSessionDeleted(r.room.id, 1_000);
+  await r.sessions.markSessionDeleted(ambientTenant(), r.room.id, 1_000);
 
   const out = await syscalls.open({ task: "keep working after the chat was deleted" });
 

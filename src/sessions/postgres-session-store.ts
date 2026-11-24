@@ -248,8 +248,8 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
       return rows.map(rowToSession);
     },
 
-    async markSessionDeleted(sessionId, at): Promise<void> {
-      await q(
+    async markSessionDeleted(tenant, sessionId, at): Promise<void> {
+      await db.forTenant(tenant).q(
         `WITH RECURSIVE tree AS (
            SELECT id FROM sessions WHERE id = $1
            UNION
@@ -260,8 +260,10 @@ export function createPostgresSessionStore(connectionString: string, opts: Store
       );
     },
 
-    async listDeletedBefore(cutoff): Promise<string[]> {
-      const rows = await q("SELECT id FROM sessions WHERE deleted_at IS NOT NULL AND deleted_at < $1", [cutoff]);
+    async listDeletedBefore(tenant, cutoff): Promise<string[]> {
+      const rows = await db
+        .forTenant(tenant)
+        .q("SELECT id FROM sessions WHERE deleted_at IS NOT NULL AND deleted_at < $1", [cutoff]);
       return rows.map((r) => r.id as string);
     },
 

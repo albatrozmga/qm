@@ -204,8 +204,10 @@ export async function startQm(
     built.runtime.start({
       resume() {
         built.scheduler.start(1000);
-        if (tenant)
-          stopDeletedSessionSweeper ??= inBootTenant(tenant, () => startDeletedSessionSweeper(built.sessions));
+        stopDeletedSessionSweeper ??= inBootTenant(
+          tenant,
+          (bound) => bound && startDeletedSessionSweeper(bound, built.sessions),
+        );
         for (const runtime of slackRuntimes) runtime.start();
       },
       async standDown() {

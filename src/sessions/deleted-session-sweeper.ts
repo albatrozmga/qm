@@ -1,11 +1,12 @@
 import type { SessionStore } from "./session-store.ts";
+import type { Tenant } from "../tenants/context.ts";
 
 export const PURGE_AFTER_MS = 30 * 24 * 3600 * 1000;
 const SWEEP_INTERVAL_MS = 24 * 3600 * 1000;
 
-export async function sweepDeletedSessions(sessions: SessionStore, now: number): Promise<number> {
+export async function sweepDeletedSessions(tenant: Tenant, sessions: SessionStore, now: number): Promise<number> {
   let purged = 0;
-  for (const id of await sessions.listDeletedBefore(now - PURGE_AFTER_MS)) {
+  for (const id of await sessions.listDeletedBefore(tenant, now - PURGE_AFTER_MS)) {
     try {
       await sessions.deleteSession(id);
       purged++;
@@ -16,9 +17,9 @@ export async function sweepDeletedSessions(sessions: SessionStore, now: number):
   return purged;
 }
 
-export function startDeletedSessionSweeper(sessions: SessionStore): () => void {
+export function startDeletedSessionSweeper(tenant: Tenant, sessions: SessionStore): () => void {
   const run = () =>
-    void sweepDeletedSessions(sessions, Date.now()).catch((e) =>
+    void sweepDeletedSessions(tenant, sessions, Date.now()).catch((e) =>
       console.error(`[deleted-session-sweeper] sweep failed: ${e instanceof Error ? e.message : e}`),
     );
   run();

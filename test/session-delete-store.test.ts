@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { createPostgresSessionStore } from "../src/sessions/postgres-session-store.ts";
 import { applyPgMigrations, registeredPgMigrations } from "../src/persistence/pg-pool.ts";
 import { scopeId } from "../src/types.ts";
+import { ambientTenant } from "../src/tenants/context.ts";
 
 test("markSessionDeleted esconde a sessão de listByParticipant e listDeletedBefore respeita o corte", async () => {
   const store = createPostgresSessionStore(testDatabaseUrl());
@@ -14,11 +15,11 @@ test("markSessionDeleted esconde a sessão de listByParticipant e listDeletedBef
 
   assert.equal((await store.listByParticipant("alice")).length, 1);
 
-  await store.markSessionDeleted(s.id, 1_000);
+  await store.markSessionDeleted(ambientTenant(), s.id, 1_000);
   assert.equal((await store.listByParticipant("alice")).length, 0, "deletada some da listagem");
 
-  assert.deepEqual(await store.listDeletedBefore(500), [], "antes do corte: nada");
-  assert.deepEqual(await store.listDeletedBefore(2_000), [s.id], "após o corte: aparece para purga");
+  assert.deepEqual(await store.listDeletedBefore(ambientTenant(), 500), [], "antes do corte: nada");
+  assert.deepEqual(await store.listDeletedBefore(ambientTenant(), 2_000), [s.id], "após o corte: aparece para purga");
 });
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -43,12 +44,12 @@ for (const backend of backends) {
     await store.setParentSession(grandchild.id, child.id);
     for (const s of [root, child, grandchild]) await store.addParticipant(s.id, owner);
 
-    await store.markSessionDeleted(root.id, 1_000);
+    await store.markSessionDeleted(ambientTenant(), root.id, 1_000);
 
     assert.deepEqual(await store.listByParticipant(owner), [], "nenhum da árvore aparece na listagem");
     assert.equal(await store.getForParticipant(child.id, owner), null, "o subagente não abre direto");
     assert.equal(await store.getForParticipant(grandchild.id, owner), null, "nem o neto");
-    const purge = new Set(await store.listDeletedBefore(2_000));
+    const purge = new Set(await store.listDeletedBefore(ambientTenant(), 2_000));
     for (const s of [root, child, grandchild]) assert.ok(purge.has(s.id), "a árvore inteira vai para a purga");
   });
 
@@ -60,7 +61,7 @@ for (const backend of backends) {
       const owner = `alice-${randomUUID()}`;
       const session = await store.getOrCreateByThread(`web:${owner}:t`, "dm", scopeId("personal", owner));
 
-      await store.markSessionDeleted(session.id, 1_000);
+      await store.markSessionDeleted(ambientTenant(), session.id, 1_000);
 
       assert.equal((await store.get(session.id))?.deletedAt, 1_000);
       assert.equal((await store.getByThread(`web:${owner}:t`))?.deletedAt, 1_000);
@@ -95,7 +96,7 @@ test(
     }
 
     assert.equal(await store.getForParticipant(child.id, owner), null);
-    assert.ok((await store.listDeletedBefore(2_000)).includes(child.id));
+    assert.ok((await store.listDeletedBefore(ambientTenant(), 2_000)).includes(child.id));
   },
 );
 
@@ -124,7 +125,7 @@ test(
       await pool.end();
     }
 
-    const dueNow = new Set(await store.listDeletedBefore(1));
+    const dueNow = new Set(await store.listDeletedBefore(ambientTenant(), 1));
     assert.ok(dueNow.has(inbox.id) && dueNow.has(appEdit.id), "inbox e edição de app saem na próxima varredura");
     assert.ok(!dueNow.has(ordinary.id), "um chat comum segue o prazo de 30 dias");
   },

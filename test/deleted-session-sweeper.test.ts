@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { scopeId } from "../src/types.ts";
 import { sweepDeletedSessions, PURGE_AFTER_MS } from "../src/sessions/deleted-session-sweeper.ts";
+import { ambientTenant } from "../src/tenants/context.ts";
 
 test("purga só o que passou dos 30 dias e não toca o resto", async () => {
   const store = createPostgresSessionStore(testDatabaseUrl());
@@ -13,10 +14,10 @@ test("purga só o que passou dos 30 dias e não toca o resto", async () => {
   const old = await store.getOrCreateByThread("web:a:t-old", "dm", scope);
   const fresh = await store.getOrCreateByThread("web:a:t-fresh", "dm", scope);
   const alive = await store.getOrCreateByThread("web:a:t-alive", "dm", scope);
-  await store.markSessionDeleted(old.id, now - PURGE_AFTER_MS - 1);
-  await store.markSessionDeleted(fresh.id, now - 1000);
+  await store.markSessionDeleted(ambientTenant(), old.id, now - PURGE_AFTER_MS - 1);
+  await store.markSessionDeleted(ambientTenant(), fresh.id, now - 1000);
 
-  assert.equal(await sweepDeletedSessions(store, now), 1);
+  assert.equal(await sweepDeletedSessions(ambientTenant(), store, now), 1);
   assert.equal(await store.get(old.id), null, "antiga purgada de verdade");
   assert.ok(await store.get(fresh.id), "recém-deletada preservada (janela)");
   assert.ok(await store.get(alive.id), "viva intacta");

@@ -1110,7 +1110,7 @@ export function createSessionMethods(
       return { resumed: true as const, goal: goalView(goal) };
     },
 
-    async deleteSessionForViewer(sessionId, principalId) {
+    async deleteSessionForViewer(tenant, sessionId, principalId) {
       const session = (await sessionsForViewer({ actorId: principalId })).find((s) => s.id === sessionId);
       if (!session) return "not_found";
       if (!deletableWebChat(session.type, session.threadRef)) return "forbidden";
@@ -1124,7 +1124,7 @@ export function createSessionMethods(
       };
       const remove = async () => {
         await stopTree();
-        await deps.sessions.markSessionDeleted(sessionId, Date.now());
+        await deps.sessions.markSessionDeleted(tenant, sessionId, Date.now());
         await stopTree();
       };
       await (deps.advisoryLock ? deps.advisoryLock.withLock("session-tree-admission", remove) : remove());
